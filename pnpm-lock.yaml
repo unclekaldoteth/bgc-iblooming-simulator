@@ -7,6 +7,22 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@bgc-alpha/auth':
+        specifier: workspace:*
+        version: link:packages/auth
+      '@bgc-alpha/baseline-model':
+        specifier: workspace:*
+        version: link:packages/baseline-model
+      '@bgc-alpha/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@bgc-alpha/schemas':
+        specifier: workspace:*
+        version: link:packages/schemas
+      '@bgc-alpha/simulation-core':
+        specifier: workspace:*
+        version: link:packages/simulation-core
     devDependencies:
       prettier:
         specifier: ^3.4.2

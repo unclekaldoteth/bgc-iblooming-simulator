@@ -24,6 +24,13 @@
     "snapshot:build-bgc-bundle": "tsx scripts/build-bgc-source-bundle.ts",
     "snapshot:verify-bgc-bundle": "tsx scripts/verify-bgc-source-bundle.ts"
   },
+  "dependencies": {
+    "@bgc-alpha/auth": "workspace:*",
+    "@bgc-alpha/baseline-model": "workspace:*",
+    "@bgc-alpha/db": "workspace:*",
+    "@bgc-alpha/schemas": "workspace:*",
+    "@bgc-alpha/simulation-core": "workspace:*"
+  },
   "devDependencies": {
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",

@@ -1,0 +1,44 @@
+{
+  "extends": "../packages/config/typescript/base.json",
+  "compilerOptions": {
+    "baseUrl": "..",
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "@bgc-alpha/auth": [
+        "packages/auth/src/auth.ts"
+      ],
+      "@bgc-alpha/auth/*": [
+        "packages/auth/src/*"
+      ],
+      "@bgc-alpha/baseline-model": [
+        "packages/baseline-model/src/index.ts"
+      ],
+      "@bgc-alpha/baseline-model/*": [
+        "packages/baseline-model/src/*"
+      ],
+      "@bgc-alpha/db": [
+        "packages/db/src/index.ts"
+      ],
+      "@bgc-alpha/db/*": [
+        "packages/db/src/*"
+      ],
+      "@bgc-alpha/schemas": [
+        "packages/schemas/src/index.ts"
+      ],
+      "@bgc-alpha/schemas/*": [
+        "packages/schemas/src/*"
+      ],
+      "@bgc-alpha/simulation-core": [
+        "packages/simulation-core/src/index.ts"
+      ],
+      "@bgc-alpha/simulation-core/*": [
+        "packages/simulation-core/src/*"
+      ]
+    }
+  },
+  "include": [
+    "./*.ts"
+  ]
+}

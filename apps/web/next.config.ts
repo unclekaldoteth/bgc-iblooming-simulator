@@ -4,6 +4,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
+  outputFileTracingIncludes: {
+    "/**": [
+      "../../node_modules/.pnpm/@prisma+client*/node_modules/.prisma/client/**/*"
+    ]
+  },
   serverExternalPackages: [
     "@prisma/client",
     "prisma"
