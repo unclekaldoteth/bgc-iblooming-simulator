@@ -1,7 +1,3 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 import type PgBoss from "pg-boss";
 
 import {
@@ -13,6 +9,7 @@ import {
   type SnapshotImportIssueInput,
   type SnapshotMemberMonthFactInput
 } from "@bgc-alpha/db";
+import { readSnapshotCsvText } from "@bgc-alpha/db/snapshot-storage";
 import {
   snapshotImportCsvHeaders,
   snapshotImportCsvRowSchema,
@@ -21,18 +18,6 @@ import {
 } from "@bgc-alpha/schemas";
 
 import { parseCsvRecords } from "../lib/parse-csv";
-
-function resolveFileUri(fileUri: string) {
-  if (fileUri.startsWith("file://")) {
-    return fileURLToPath(fileUri);
-  }
-
-  if (/^[a-z]+:\/\//i.test(fileUri)) {
-    throw new Error("Only file:// URIs are supported for snapshot import in local development.");
-  }
-
-  return path.isAbsolute(fileUri) ? fileUri : path.resolve(process.cwd(), fileUri);
-}
 
 function parseNumericField(value: string, fieldName: string, rowRef: string) {
   const parsed = Number(value);
@@ -135,8 +120,7 @@ export async function registerSnapshotImportJob(boss: PgBoss) {
     let rowCountRaw = 0;
 
     try {
-      const filePath = resolveFileUri(importRun.fileUri);
-      const csvText = await readFile(filePath, "utf8");
+      const csvText = await readSnapshotCsvText(importRun.fileUri);
       const records = parseCsvRecords(csvText);
       rowCountRaw = records.length;
 

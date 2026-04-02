@@ -63,9 +63,9 @@ Useful local helper scripts:
 Browser CSV upload:
 
 - the `Snapshots` form now supports direct CSV upload from the browser
-- uploaded files are saved locally under `storage/uploads/snapshots`
-- the app registers the resulting `file://` URI automatically during snapshot creation
-- this is intended for local/internal development, not shared production storage
+- if `S3_*` env vars are configured, uploaded files are written to `s3://...` object storage
+- otherwise local development falls back to `storage/uploads/snapshots` and registers a `file://` URI
+- Vercel/shared deployments should use the S3-backed path so the worker can import the same file later
 
 The local Docker Postgres instance is bound to `127.0.0.1:5433` to avoid conflicts with a host Postgres
 server already using `5432`.
@@ -95,6 +95,7 @@ For Vercel:
 2. Keep the install command as `pnpm install`
 3. Build the Next.js app from that directory
 4. Set `DATABASE_URL` to a hosted Postgres connection string, not the local Docker URL from `/.env.example`
+5. Set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` on both the web app and worker if you want browser snapshot uploads to persist across import jobs
 
 If you use a Vercel Postgres integration, the app now also accepts the injected `POSTGRES_PRISMA_URL`,
 `POSTGRES_URL`, and `POSTGRES_URL_NON_POOLING` variables as production fallbacks.
