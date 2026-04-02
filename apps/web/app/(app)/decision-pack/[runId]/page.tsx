@@ -34,7 +34,7 @@ export default async function DecisionPackPage({
   params: Promise<{ runId: string }>;
 }) {
   const { runId } = await params;
-  await requirePageUser(["decision-pack.read"]);
+  const user = await requirePageUser(["decision-pack.read"]);
   const databaseConfigured = hasDatabaseUrl();
 
   if (!databaseConfigured) {
@@ -60,10 +60,11 @@ export default async function DecisionPackPage({
   const milestoneEvaluations = readMilestoneEvaluations(decisionPackRecord?.recommendationJson);
   const scenarioParameters = scenarioParametersSchema.parse(run.scenario.parameterJson);
   const refreshActive = run.status === "QUEUED" || run.status === "RUNNING" || !decisionPack;
+  const inlineResumeEnabled = Boolean(process.env.VERCEL) && user.capabilities.includes("runs.write");
 
   return (
     <>
-      <RunStatusRefresh active={refreshActive} />
+      <RunStatusRefresh active={refreshActive} inlineResumeEnabled={inlineResumeEnabled} runId={run.id} />
       <PageHeader eyebrow="Recommendation" title={`Recommendation Pack · ${getRunReference(runId)}`} description="Founder-facing recommendation output from this simulation run." />
 
       {/* Tab nav */}

@@ -56,7 +56,7 @@ export default async function RunDetailPage({
   params: Promise<{ runId: string }>;
 }) {
   const { runId } = await params;
-  await requirePageUser(["runs.read"]);
+  const user = await requirePageUser(["runs.read"]);
   const databaseConfigured = hasDatabaseUrl();
 
   if (!databaseConfigured) {
@@ -81,6 +81,7 @@ export default async function RunDetailPage({
   const scenarioParameters = scenarioParametersSchema.parse(run.scenario.parameterJson);
   const failureMessage = run.status === "FAILED" ? run.runNotes?.trim() || "Run failed without a recorded error." : null;
   const activeRefresh = run.status === "QUEUED" || run.status === "RUNNING" || (run.status === "COMPLETED" && !decisionPack);
+  const inlineResumeEnabled = Boolean(process.env.VERCEL) && user.capabilities.includes("runs.write");
   const policyStatusLabel = failureMessage ? "failed" : decisionPack?.policy_status ?? (run.status === "COMPLETED" ? "completed" : "pending");
   const verdictStatus = getVerdictStatus(policyStatusLabel);
 
@@ -94,7 +95,7 @@ export default async function RunDetailPage({
 
   return (
     <>
-      <RunStatusRefresh active={activeRefresh} />
+      <RunStatusRefresh active={activeRefresh} inlineResumeEnabled={inlineResumeEnabled} runId={run.id} />
       <PageHeader
         eyebrow="Simulation Result"
         title={`Run Summary · ${getRunReference(runId)}`}

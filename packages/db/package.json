@@ -17,7 +17,9 @@
     "./snapshot-storage": "./src/snapshot-storage.ts"
   },
   "dependencies": {
+    "@bgc-alpha/baseline-model": "workspace:*",
     "@bgc-alpha/schemas": "workspace:*",
+    "@bgc-alpha/simulation-core": "workspace:*",
     "@prisma/client": "^6.1.0"
   },
   "devDependencies": {

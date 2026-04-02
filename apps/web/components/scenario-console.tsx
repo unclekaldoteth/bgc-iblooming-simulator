@@ -148,7 +148,7 @@ function getTemplateBadgeClass(template: string) {
 
 type RunLaunchResponse = {
   id?: string;
-  run?: { id: string };
+  run?: { id: string; status?: string };
   error?: string;
 };
 
@@ -622,7 +622,11 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                           router.refresh();
                           return;
                         }
-                        setMessage(`Run queued for ${scenario.name}.`);
+                        setMessage(
+                          payload?.run?.status === "COMPLETED"
+                            ? `Run completed for ${scenario.name}.`
+                            : `Run queued for ${scenario.name}.`
+                        );
                         router.push(`/runs/${runId}`);
                       });
                     }}

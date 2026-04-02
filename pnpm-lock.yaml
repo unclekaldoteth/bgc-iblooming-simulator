@@ -170,9 +170,15 @@ importers:
 
   packages/db:
     dependencies:
+      '@bgc-alpha/baseline-model':
+        specifier: workspace:*
+        version: link:../baseline-model
       '@bgc-alpha/schemas':
         specifier: workspace:*
         version: link:../schemas
+      '@bgc-alpha/simulation-core':
+        specifier: workspace:*
+        version: link:../simulation-core
       '@prisma/client':
         specifier: ^6.1.0
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)

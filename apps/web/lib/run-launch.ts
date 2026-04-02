@@ -7,6 +7,7 @@ import {
   getScenarioById,
   getSnapshotById,
   markRunFailed,
+  processSimulationRun,
   writeAuditEvent
 } from "@bgc-alpha/db";
 
@@ -25,6 +26,8 @@ export async function launchSimulationRun({
   userId
 }: LaunchSimulationRunParams) {
   let runId: string | null = null;
+  const shouldProcessInline = Boolean(process.env.VERCEL);
+  let inlineProcessingStarted = false;
 
   try {
     const scenario = await getScenarioById(scenarioId);
@@ -110,6 +113,21 @@ export async function launchSimulationRun({
 
     runId = run.id;
 
+    if (shouldProcessInline) {
+      inlineProcessingStarted = true;
+      const completedRun = await processSimulationRun(run.id);
+
+      return NextResponse.json(
+        {
+          id: run.id,
+          run: completedRun
+        },
+        {
+          status: 200
+        }
+      );
+    }
+
     await enqueueJob("simulation.run", {
       runId: run.id
     });
@@ -136,7 +154,7 @@ export async function launchSimulationRun({
       }
     );
   } catch (error) {
-    if (runId) {
+    if (runId && !inlineProcessingStarted) {
       await markRunFailed(runId, error instanceof Error ? error.message : "run_failed");
     }
 
