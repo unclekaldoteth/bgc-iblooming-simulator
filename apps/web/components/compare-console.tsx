@@ -179,7 +179,7 @@ export function CompareConsole({
       };
     });
     return { dimensions, series };
-  }, [filteredRuns, runs]);
+  }, [filteredRuns, runDisplayLabels, runs]);
 
   return (
     <>

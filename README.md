@@ -84,3 +84,15 @@ Default seeded accounts:
 Default seeded password:
 
 - `ChangeMe123!`
+
+## Vercel Deployment
+
+This repository is a pnpm monorepo. The Next.js app lives in `apps/web`, not in the repository root.
+
+For Vercel:
+
+1. Set the project's `Root Directory` to `apps/web`
+2. Keep the install command as `pnpm install`
+3. Build the Next.js app from that directory
+
+If Vercel is pointed at the repository root, it will fail with `No Next.js version detected` because the root `package.json` does not contain the `next` dependency. That is expected for this workspace layout.
