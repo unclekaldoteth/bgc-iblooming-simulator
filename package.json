@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
+    "postinstall": "pnpm --filter @bgc-alpha/db prisma:generate",
     "dev": "turbo dev --parallel",
     "build": "turbo build",
     "typecheck": "turbo typecheck",
