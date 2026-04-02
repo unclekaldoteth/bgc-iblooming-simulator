@@ -474,7 +474,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         </button>
                       </div>
                       {formState.milestones.length === 0 ? (
-                        <p className="muted" style={{ fontSize: "0.78rem", margin: 0 }}>No milestones defined. Click "+ Add Milestone" to create one.</p>
+                        <p className="muted" style={{ fontSize: "0.78rem", margin: 0 }}>No milestones defined. Click &quot;+ Add Milestone&quot; to create one.</p>
                       ) : (
                         <div className="milestone-list">
                           {formState.milestones.map((ms, idx) => (
