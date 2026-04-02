@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getRunById } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { Card, PageHeader } from "@bgc-alpha/ui";
 
 import { requirePageUser } from "@/lib/auth-session";
@@ -20,7 +21,7 @@ export default async function DistributionPage({
 }) {
   const { runId } = await params;
   await requirePageUser(["runs.read"]);
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
 
   if (!databaseConfigured) {
     return (

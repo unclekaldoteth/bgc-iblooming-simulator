@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { listScenarios, listSnapshots, prisma } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { Card, PageHeader } from "@bgc-alpha/ui";
 
 import { SummaryMetricsChart } from "@/components/summary-metrics-chart";
@@ -22,7 +23,7 @@ function formatDate(value: Date) {
 }
 
 export default async function OverviewPage() {
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
   const [
     snapshots,
     scenarios,

@@ -1,4 +1,5 @@
 import { listCompletedRuns } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { PageHeader } from "@bgc-alpha/ui";
 
 import { CompareConsole } from "@/components/compare-console";
@@ -30,7 +31,7 @@ const metricOptimization: Record<string, "lower" | "higher"> = {
 
 export default async function ComparePage() {
   await requirePageUser(["compare.read"]);
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
   const runs = databaseConfigured ? await listCompletedRuns() : [];
 
   // Pre-compute extras on the server (these depend on server-only JSON parsing)

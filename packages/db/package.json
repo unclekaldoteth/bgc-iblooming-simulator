@@ -12,7 +12,8 @@
     "prisma:push": "prisma db push --schema=./prisma/schema.prisma"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./database-url": "./src/database-url.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0"

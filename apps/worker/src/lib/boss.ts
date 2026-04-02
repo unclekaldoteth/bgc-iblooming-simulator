@@ -1,11 +1,9 @@
 import PgBoss from "pg-boss";
 
-export async function createBoss() {
-  const connectionString = process.env.DATABASE_URL;
+import { resolveDatabaseUrl } from "@bgc-alpha/db/database-url";
 
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required for the worker");
-  }
+export async function createBoss() {
+  const connectionString = resolveDatabaseUrl("postgres", "the worker");
 
   const boss = new PgBoss({
     connectionString
@@ -14,4 +12,3 @@ export async function createBoss() {
   await boss.start();
   return boss;
 }
-

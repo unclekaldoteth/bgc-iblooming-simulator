@@ -1,4 +1,5 @@
 import { listBaselineModelVersions, listScenarios, listSnapshots } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { scenarioParametersSchema } from "@bgc-alpha/schemas";
 import { PageHeader } from "@bgc-alpha/ui";
 
@@ -14,7 +15,7 @@ function toTemplateType(value: string) {
 }
 
 export default async function ScenariosPage() {
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
   const user = await requirePageUser(["scenarios.read"]);
   const [scenarios, snapshots, baselineModels] = databaseConfigured
     ? await Promise.all([listScenarios(), listSnapshots(), listBaselineModelVersions()])

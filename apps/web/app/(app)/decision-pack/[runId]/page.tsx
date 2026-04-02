@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getLatestDecisionPackForRun, getRunById } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { scenarioParametersSchema } from "@bgc-alpha/schemas";
 import { Card, PageHeader } from "@bgc-alpha/ui";
 
@@ -34,7 +35,7 @@ export default async function DecisionPackPage({
 }) {
   const { runId } = await params;
   await requirePageUser(["decision-pack.read"]);
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
 
   if (!databaseConfigured) {
     return (

@@ -1,15 +1,13 @@
 import PgBoss from "pg-boss";
 
+import { resolveDatabaseUrl } from "@bgc-alpha/db/database-url";
+
 const globalForBoss = globalThis as unknown as {
   bossPromise?: Promise<PgBoss>;
 };
 
 async function createQueueClient() {
-  const connectionString = process.env.DATABASE_URL;
-
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required for queued run orchestration.");
-  }
+  const connectionString = resolveDatabaseUrl("postgres", "queued run orchestration");
 
   const boss = new PgBoss({
     connectionString

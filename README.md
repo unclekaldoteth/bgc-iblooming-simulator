@@ -94,5 +94,9 @@ For Vercel:
 1. Set the project's `Root Directory` to `apps/web`
 2. Keep the install command as `pnpm install`
 3. Build the Next.js app from that directory
+4. Set `DATABASE_URL` to a hosted Postgres connection string, not the local Docker URL from `/.env.example`
+
+If you use a Vercel Postgres integration, the app now also accepts the injected `POSTGRES_PRISMA_URL`,
+`POSTGRES_URL`, and `POSTGRES_URL_NON_POOLING` variables as production fallbacks.
 
 If Vercel is pointed at the repository root, it will fail with `No Next.js version detected` because the root `package.json` does not contain the `next` dependency. That is expected for this workspace layout.

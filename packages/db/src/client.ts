@@ -1,8 +1,12 @@
 import { PrismaClient } from "@prisma/client";
 
+import { resolveDatabaseUrl } from "./database-url";
+
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
+
+resolveDatabaseUrl("prisma", "Prisma Client");
 
 export const prisma =
   globalForPrisma.prisma ??
@@ -13,4 +17,3 @@ export const prisma =
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
-

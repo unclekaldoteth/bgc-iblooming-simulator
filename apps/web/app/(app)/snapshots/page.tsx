@@ -1,11 +1,12 @@
 import { listSnapshots } from "@bgc-alpha/db";
+import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
 import { PageHeader } from "@bgc-alpha/ui";
 
 import { SnapshotConsole } from "@/components/snapshot-console";
 import { requirePageUser } from "@/lib/auth-session";
 
 export default async function SnapshotsPage() {
-  const databaseConfigured = Boolean(process.env.DATABASE_URL);
+  const databaseConfigured = hasDatabaseUrl();
   const user = await requirePageUser(["snapshots.read"]);
   const snapshots = databaseConfigured ? await listSnapshots() : [];
 
