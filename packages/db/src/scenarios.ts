@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 
 import { prisma } from "./client";
+import { snapshotDefaultRelationSelect } from "./snapshots";
 
 type ScenarioUpsertInput = {
   name: string;
@@ -12,32 +13,38 @@ type ScenarioUpsertInput = {
   createdBy?: string | null;
 };
 
+const scenarioSelect = {
+  id: true,
+  name: true,
+  templateType: true,
+  description: true,
+  snapshotIdDefault: true,
+  modelVersionId: true,
+  parameterJson: true,
+  createdBy: true,
+  createdAt: true,
+  updatedAt: true,
+  modelVersion: true,
+  snapshotDefault: {
+    select: snapshotDefaultRelationSelect
+  },
+  runs: {
+    take: 1,
+    orderBy: {
+      createdAt: "desc" as const
+    },
+    select: {
+      id: true,
+      status: true,
+      createdAt: true,
+      completedAt: true
+    }
+  }
+} as const;
+
 export async function listScenarios() {
   return prisma.scenario.findMany({
-    include: {
-      modelVersion: true,
-      snapshotDefault: {
-        include: {
-          _count: {
-            select: {
-              memberMonthFacts: true
-            }
-          }
-        }
-      },
-      runs: {
-        take: 1,
-        orderBy: {
-          createdAt: "desc"
-        },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          completedAt: true
-        }
-      }
-    },
+    select: scenarioSelect,
     orderBy: {
       updatedAt: "desc"
     }
@@ -49,30 +56,7 @@ export async function getScenarioById(scenarioId: string) {
     where: {
       id: scenarioId
     },
-    include: {
-      modelVersion: true,
-      snapshotDefault: {
-        include: {
-          _count: {
-            select: {
-              memberMonthFacts: true
-            }
-          }
-        }
-      },
-      runs: {
-        take: 1,
-        orderBy: {
-          createdAt: "desc"
-        },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          completedAt: true
-        }
-      }
-    }
+    select: scenarioSelect
   });
 }
 
@@ -87,30 +71,7 @@ export async function createScenario(input: ScenarioUpsertInput) {
       parameterJson: input.parameterJson,
       createdBy: input.createdBy ?? null
     },
-    include: {
-      modelVersion: true,
-      snapshotDefault: {
-        include: {
-          _count: {
-            select: {
-              memberMonthFacts: true
-            }
-          }
-        }
-      },
-      runs: {
-        take: 1,
-        orderBy: {
-          createdAt: "desc"
-        },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          completedAt: true
-        }
-      }
-    }
+    select: scenarioSelect
   });
 }
 
@@ -130,29 +91,6 @@ export async function updateScenario(
       modelVersionId: input.modelVersionId,
       parameterJson: input.parameterJson
     },
-    include: {
-      modelVersion: true,
-      snapshotDefault: {
-        include: {
-          _count: {
-            select: {
-              memberMonthFacts: true
-            }
-          }
-        }
-      },
-      runs: {
-        take: 1,
-        orderBy: {
-          createdAt: "desc"
-        },
-        select: {
-          id: true,
-          status: true,
-          createdAt: true,
-          completedAt: true
-        }
-      }
-    }
+    select: scenarioSelect
   });
 }

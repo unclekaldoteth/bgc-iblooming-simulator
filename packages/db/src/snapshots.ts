@@ -77,45 +77,135 @@ type CreateSnapshotImportRunInput = {
   requestedByUserId?: string | null;
 };
 
-const snapshotInclude = {
+const issueOrderBy = [
+  {
+    severity: "asc" as const
+  },
+  {
+    createdAt: "asc" as const
+  }
+];
+
+const snapshotValidationIssueSelect = {
+  id: true,
+  severity: true,
+  issueType: true,
+  message: true,
+  rowRef: true,
+  createdAt: true
+} as const;
+
+const snapshotImportIssueSelect = {
+  id: true,
+  severity: true,
+  issueType: true,
+  message: true,
+  rowRef: true,
+  createdAt: true
+} as const;
+
+export const snapshotBaseSelect = {
+  id: true,
+  name: true,
+  sourceSystems: true,
+  dateFrom: true,
+  dateTo: true,
+  fileUri: true,
+  recordCount: true,
+  validationStatus: true,
+  approvedByUserId: true,
+  approvedAt: true,
+  notes: true,
+  createdByUserId: true,
+  createdAt: true,
+  updatedAt: true
+} as const;
+
+export const snapshotDefaultRelationSelect = {
+  id: true,
+  name: true,
+  validationStatus: true,
+  _count: {
+    select: {
+      memberMonthFacts: true
+    }
+  }
+} as const;
+
+export const runSnapshotSelect = {
+  id: true,
+  name: true
+} as const;
+
+const snapshotImportRunWithIssuesSelect = {
+  id: true,
+  snapshotId: true,
+  fileUri: true,
+  requestedByUserId: true,
+  status: true,
+  rowCountRaw: true,
+  rowCountImported: true,
+  startedAt: true,
+  completedAt: true,
+  notes: true,
+  createdAt: true,
+  updatedAt: true,
+  issues: {
+    select: snapshotImportIssueSelect,
+    orderBy: issueOrderBy
+  }
+} as const;
+
+const snapshotSelect = {
+  ...snapshotBaseSelect,
   validationIssues: {
-    orderBy: [
-      {
-        severity: "asc" as const
-      },
-      {
-        createdAt: "asc" as const
-      }
-    ]
+    select: snapshotValidationIssueSelect,
+    orderBy: issueOrderBy
   },
   importRuns: {
     take: 1,
     orderBy: {
       createdAt: "desc" as const
     },
-    include: {
-      issues: {
-        orderBy: [
-          {
-            severity: "asc" as const
-          },
-          {
-            createdAt: "asc" as const
-          }
-        ]
-      }
-    }
+    select: snapshotImportRunWithIssuesSelect
   },
   _count: {
     select: {
       memberMonthFacts: true
     }
   }
-};
+} as const;
+
+const snapshotValidationSelect = {
+  ...snapshotBaseSelect,
+  validationIssues: {
+    select: snapshotValidationIssueSelect,
+    orderBy: issueOrderBy
+  }
+} as const;
+
+export function isMissingDatasetSnapshotCanonicalSourceSnapshotKeyColumn(error: unknown) {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) {
+    return false;
+  }
+
+  if (error.code !== "P2022") {
+    return false;
+  }
+
+  const columnName =
+    typeof error.meta === "object" &&
+    error.meta !== null &&
+    "column" in error.meta
+      ? String((error.meta as { column?: unknown }).column ?? "")
+      : "";
+
+  return columnName.includes("DatasetSnapshot.canonicalSourceSnapshotKey");
+}
 
 export async function listSnapshots() {
   return prisma.datasetSnapshot.findMany({
-    include: snapshotInclude,
+    select: snapshotSelect,
     orderBy: [
       {
         createdAt: "desc"
@@ -129,7 +219,7 @@ export async function getSnapshotById(snapshotId: string) {
     where: {
       id: snapshotId
     },
-    include: snapshotInclude
+    select: snapshotSelect
   });
 }
 
@@ -145,20 +235,7 @@ export async function createSnapshot(input: CreateSnapshotInput) {
       notes: input.notes ?? null,
       createdByUserId: input.createdByUserId ?? null
     },
-    include: {
-      validationIssues: true,
-      importRuns: {
-        take: 1,
-        orderBy: {
-          createdAt: "desc"
-        }
-      },
-      _count: {
-        select: {
-          memberMonthFacts: true
-        }
-      }
-    }
+    select: snapshotSelect
   });
 }
 
@@ -181,9 +258,31 @@ export async function getSnapshotImportRunById(importRunId: string) {
     where: {
       id: importRunId
     },
-    include: {
-      snapshot: true,
+    select: {
+      id: true,
+      snapshotId: true,
+      fileUri: true,
+      requestedByUserId: true,
+      status: true,
+      rowCountRaw: true,
+      rowCountImported: true,
+      startedAt: true,
+      completedAt: true,
+      notes: true,
+      createdAt: true,
+      updatedAt: true,
+      snapshot: {
+        select: {
+          id: true,
+          name: true,
+          fileUri: true,
+          dateFrom: true,
+          dateTo: true,
+          validationStatus: true
+        }
+      },
       issues: {
+        select: snapshotImportIssueSelect,
         orderBy: [
           {
             severity: "asc"
@@ -377,17 +476,40 @@ export async function replaceSnapshotFactsAndCompleteImport(
       });
     }
 
-    await tx.datasetSnapshot.update({
-      where: {
-        id: snapshotId
-      },
-      data: {
-        validationStatus: SnapshotStatus.DRAFT,
-        approvedAt: null,
-        approvedByUserId: null,
-        canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null
+    try {
+      await tx.datasetSnapshot.update({
+        where: {
+          id: snapshotId
+        },
+        data: {
+          validationStatus: SnapshotStatus.DRAFT,
+          approvedAt: null,
+          approvedByUserId: null,
+          canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null
+        },
+        select: {
+          id: true
+        }
+      });
+    } catch (error) {
+      if (!isMissingDatasetSnapshotCanonicalSourceSnapshotKeyColumn(error)) {
+        throw error;
       }
-    });
+
+      await tx.datasetSnapshot.update({
+        where: {
+          id: snapshotId
+        },
+        data: {
+          validationStatus: SnapshotStatus.DRAFT,
+          approvedAt: null,
+          approvedByUserId: null
+        },
+        select: {
+          id: true
+        }
+      });
+    }
 
     return tx.snapshotImportRun.update({
       where: {
@@ -505,18 +627,7 @@ export async function setSnapshotValidationResult(
       data: {
         validationStatus: status
       },
-      include: {
-        validationIssues: {
-          orderBy: [
-            {
-              severity: "asc"
-            },
-            {
-              createdAt: "asc"
-            }
-          ]
-        }
-      }
+      select: snapshotValidationSelect
     });
   });
 }
@@ -528,6 +639,10 @@ export async function markSnapshotValidating(snapshotId: string) {
     },
     data: {
       validationStatus: SnapshotStatus.VALIDATING
+    },
+    select: {
+      id: true,
+      validationStatus: true
     }
   });
 }
@@ -542,8 +657,6 @@ export async function approveSnapshot(snapshotId: string, approvedByUserId: stri
       approvedByUserId,
       approvedAt: new Date()
     },
-    include: {
-      validationIssues: true
-    }
+    select: snapshotValidationSelect
   });
 }

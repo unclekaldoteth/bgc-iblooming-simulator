@@ -18,6 +18,7 @@ import {
 } from "@prisma/client";
 
 import { prisma } from "./client";
+import { isMissingDatasetSnapshotCanonicalSourceSnapshotKeyColumn } from "./snapshots";
 
 export type CanonicalMemberInput = {
   stableKey: string;
@@ -233,48 +234,76 @@ export async function listCanonicalBusinessEvents(snapshotId: string) {
 }
 
 export async function getCanonicalSnapshotGraph(snapshotId: string) {
-  return prisma.datasetSnapshot.findUnique({
-    where: {
-      id: snapshotId
-    },
-    include: {
-      canonicalMembers: {
-        include: {
-          aliases: {
-            orderBy: [{ sourceSystem: "asc" }, { aliasKey: "asc" }]
-          },
-          roleHistory: {
-            orderBy: [{ effectiveFrom: "asc" }, { roleType: "asc" }]
-          }
+  const baseSelect = Prisma.validator<Prisma.DatasetSnapshotSelect>()({
+    id: true,
+    canonicalMembers: {
+      include: {
+        aliases: {
+          orderBy: [{ sourceSystem: "asc" }, { aliasKey: "asc" }]
         },
-        orderBy: [{ stableKey: "asc" }]
+        roleHistory: {
+          orderBy: [{ effectiveFrom: "asc" }, { roleType: "asc" }]
+        }
       },
-      canonicalBusinessEvents: {
-        orderBy: [{ occurredAt: "asc" }, { eventRef: "asc" }]
-      },
-      canonicalPcEntries: {
-        orderBy: [{ effectivePeriodKey: "asc" }, { createdAt: "asc" }]
-      },
-      canonicalSpEntries: {
-        orderBy: [{ effectivePeriodKey: "asc" }, { createdAt: "asc" }]
-      },
-      canonicalRewardObligations: {
-        orderBy: [{ effectivePeriodKey: "asc" }, { rewardSourceCode: "asc" }]
-      },
-      canonicalPoolEntries: {
-        orderBy: [{ effectivePeriodKey: "asc" }, { poolCode: "asc" }]
-      },
-      canonicalCashoutEvents: {
-        orderBy: [{ occurredAt: "asc" }]
-      },
-      canonicalQualificationWindows: {
-        orderBy: [{ startsAt: "asc" }, { qualificationType: "asc" }]
-      },
-      canonicalQualificationStatusHistory: {
-        orderBy: [{ effectiveFrom: "asc" }, { qualificationType: "asc" }]
-      }
+      orderBy: [{ stableKey: "asc" }]
+    },
+    canonicalBusinessEvents: {
+      orderBy: [{ occurredAt: "asc" }, { eventRef: "asc" }]
+    },
+    canonicalPcEntries: {
+      orderBy: [{ effectivePeriodKey: "asc" }, { createdAt: "asc" }]
+    },
+    canonicalSpEntries: {
+      orderBy: [{ effectivePeriodKey: "asc" }, { createdAt: "asc" }]
+    },
+    canonicalRewardObligations: {
+      orderBy: [{ effectivePeriodKey: "asc" }, { rewardSourceCode: "asc" }]
+    },
+    canonicalPoolEntries: {
+      orderBy: [{ effectivePeriodKey: "asc" }, { poolCode: "asc" }]
+    },
+    canonicalCashoutEvents: {
+      orderBy: [{ occurredAt: "asc" }]
+    },
+    canonicalQualificationWindows: {
+      orderBy: [{ startsAt: "asc" }, { qualificationType: "asc" }]
+    },
+    canonicalQualificationStatusHistory: {
+      orderBy: [{ effectiveFrom: "asc" }, { qualificationType: "asc" }]
     }
   });
+
+  const selectWithCanonicalKey = Prisma.validator<Prisma.DatasetSnapshotSelect>()({
+    ...baseSelect,
+    canonicalSourceSnapshotKey: true
+  });
+
+  try {
+    return await prisma.datasetSnapshot.findUnique({
+      where: {
+        id: snapshotId
+      },
+      select: selectWithCanonicalKey
+    });
+  } catch (error) {
+    if (!isMissingDatasetSnapshotCanonicalSourceSnapshotKeyColumn(error)) {
+      throw error;
+    }
+
+    const snapshot = await prisma.datasetSnapshot.findUnique({
+      where: {
+        id: snapshotId
+      },
+      select: baseSelect
+    });
+
+    return snapshot
+      ? {
+          ...snapshot,
+          canonicalSourceSnapshotKey: null
+        }
+      : null;
+  }
 }
 
 export async function replaceCanonicalSnapshotData(

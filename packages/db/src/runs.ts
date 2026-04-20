@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { RunStatus } from "@prisma/client";
 
 import { prisma } from "./client";
+import { runSnapshotSelect } from "./snapshots";
 
 type CreateSimulationRunInput = {
   scenarioId: string;
@@ -37,7 +38,9 @@ type PersistCompletedRunInput = {
 
 const runInclude = {
   scenario: true,
-  snapshot: true,
+  snapshot: {
+    select: runSnapshotSelect
+  },
   modelVersion: true,
   summaryMetrics: {
     orderBy: {

@@ -15,6 +15,7 @@
     "db:down": "bash ./scripts/db-down.sh",
     "db:generate": "pnpm --filter @bgc-alpha/db prisma:generate",
     "db:push": "bash ./scripts/db-push.sh",
+    "db:push:deploy": "bash ./scripts/db-push-deploy.sh",
     "dev:setup": "bash ./scripts/dev-setup.sh",
     "seed:users": "bash ./scripts/seed-users-sql.sh",
     "seed:model": "bash ./scripts/seed-model-sql.sh",
