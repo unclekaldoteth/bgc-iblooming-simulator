@@ -6,6 +6,8 @@ import { PageHeader } from "@bgc-alpha/ui";
 import { SnapshotConsole } from "@/components/snapshot-console";
 import { requirePageUser } from "@/lib/auth-session";
 
+export const dynamic = "force-dynamic";
+
 export default async function SnapshotsPage() {
   const databaseConfigured = hasDatabaseUrl();
   const user = await requirePageUser(["snapshots.read"]);

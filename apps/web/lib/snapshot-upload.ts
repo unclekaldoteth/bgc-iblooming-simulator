@@ -4,6 +4,14 @@ export function isSnapshotCsvFilename(filename: string) {
   return filename.toLowerCase().endsWith(".csv");
 }
 
+export function isSnapshotJsonFilename(filename: string) {
+  return filename.toLowerCase().endsWith(".json");
+}
+
+export function isSnapshotDataFilename(filename: string) {
+  return isSnapshotCsvFilename(filename) || isSnapshotJsonFilename(filename);
+}
+
 function sanitizeFilename(filename: string) {
   return (
     filename
@@ -19,5 +27,5 @@ export function createSnapshotUploadPathname(filename: string) {
 }
 
 export function isSnapshotUploadPathname(pathname: string) {
-  return pathname.startsWith("snapshots/") && isSnapshotCsvFilename(pathname.split("/").pop() ?? "");
+  return pathname.startsWith("snapshots/") && isSnapshotDataFilename(pathname.split("/").pop() ?? "");
 }

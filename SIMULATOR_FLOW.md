@@ -143,6 +143,10 @@ The easiest mental model is:
     - recommendation status
 
     The key outputs include:
+    - company gross cash in
+    - retained revenue
+    - net treasury delta
+    - actual payout out
     - total ALPHA issued
     - total spent
     - total held
@@ -152,30 +156,44 @@ The easiest mental model is:
 
 11. **Review supporting views**  
     From the run page, users can open:
-    - `Distribution`: who gets how much, by segment
-    - `Treasury`: runway, payout pressure, sink utilization, and risk flags
-    - `Decision Pack`: founder-facing recommendation output
+    - `Distribution`: ALPHA behavior, issued-share concentration, phase totals, and source-system split
+    - `Treasury`: company cashflow lens first, then runway, payout pressure, internal use, and risk flags
+    - `Decision Pack`: founder-facing recommendation output with scenario basis, blockers, and export actions
 
     This is the decision layer, where raw metrics are translated into business meaning.
 
 12. **Decision Pack**  
-    The system classifies the scenario as:
+    The system classifies the scenario internally as:
     - `candidate`
     - `risky`
     - `rejected`
 
-    It then generates a simple decision pack with:
-    - recommended status
-    - preferred settings
-    - rejected settings
+    Founder-facing surfaces render those as:
+    - `Ready`
+    - `Needs Review`
+    - `Do Not Use`
+
+    It then generates a decision pack with:
+    - policy verdict
+    - scenario context
+    - evaluated scenario basis
+    - blockers or rejection reasons
     - unresolved questions
-    - export options
+    - strategic-goal evidence
+    - milestone gates
+    - full simulation report export options
 
     This is the artifact intended for founder discussion.
 
 13. **Compare scenarios in `Compare`**  
     Finally, the team goes to `Compare`.  
-    This page puts completed runs side by side so stakeholders can compare the main metrics across scenarios and decide which policy setup is safest or strongest.
+    This page puts selected completed runs side by side so stakeholders can compare scenario shape and business outcome across scenarios.
+
+    The current compare flow is:
+    - select 2 to 5 runs
+    - use the radar only as a quick scan
+    - read business cashflow comparison first
+    - then read ALPHA policy comparison, treasury risk, distribution, strategic goals, and milestones
 
 ## Short Meeting Version
 

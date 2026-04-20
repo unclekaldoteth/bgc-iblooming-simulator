@@ -93,7 +93,7 @@ The simulator must let approved users:
 - configure policy parameters,
 - run scenarios,
 - compare results side by side,
-- export a founder-ready decision pack.
+- export a founder-ready simulation report.
 
 At minimum, the product must support these scenario types:
 
@@ -146,7 +146,7 @@ The product must produce:
 - `Distribution report`
 - `Treasury and sustainability report`
 - `Fairness report`
-- `Founder decision pack`
+- `Founder-facing simulation report`
 - `Whitepaper and Token Flow handoff values`
 
 The most important output is:
@@ -163,7 +163,7 @@ The MVP should include:
 - simulation execution,
 - run history,
 - comparison view,
-- founder-ready export.
+- founder-ready report export.
 
 The MVP does not need:
 

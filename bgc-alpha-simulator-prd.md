@@ -270,14 +270,14 @@ The MVP must support:
 ### Flow 4: Compare Runs
 
 1. User selects two or more runs.
-2. System presents side-by-side comparison.
+2. System presents a side-by-side comparison with cashflow, ALPHA policy, treasury, and milestone layers.
 3. System highlights key deltas, risks, and recommendation signals.
 
-### Flow 5: Export Decision Pack
+### Flow 5: Export Full Simulation Report
 
 1. User selects a run or comparison set.
-2. System exports a founder-ready summary.
-3. Output includes recommended settings, key risks, and unresolved decisions.
+2. System exports a founder-ready report.
+3. Output includes evaluated scenario basis, blockers, key risks, and unresolved decisions.
 
 ## 15. Functional Requirements
 
@@ -422,10 +422,10 @@ The system must produce a recommendation summary for each run or comparison set.
 
 Minimum recommendation sections:
 
-- suggested pilot settings,
+- evaluated scenario basis,
 - safe range,
 - risky settings,
-- rejected settings,
+- blockers or rejection reasons,
 - unresolved founder decisions.
 
 ### FR-12 Export
@@ -520,7 +520,7 @@ The product must generate the following outputs:
 - `Distribution report`
 - `Treasury and sustainability report`
 - `Fairness report`
-- `Founder decision pack`
+- `Founder-facing simulation report`
 - `Whitepaper and Token Flow handoff values`
 - `Implementation-ready config export`
 

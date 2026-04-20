@@ -131,10 +131,14 @@ Penting: engine saat ini bersifat deterministik pada granularitas imported `memb
 Objek ini berisi:
 
 - policy status
+- label verdict founder-facing seperti `Ready`, `Needs Review`, atau `Do Not Use`
 - ringkasan rekomendasi
-- preferred settings
-- rejected settings
+- evaluated scenario basis
+- blockers atau rejection reasons
+- strategic goals
+- milestone gates
 - unresolved questions
+- aksi export full simulation report
 
 ## Layar Utama
 
@@ -167,25 +171,64 @@ Layar `Runs` menampilkan:
 
 ### Distribution
 
-Layar `Distribution` menampilkan output segment dan perilaku dari run yang sudah selesai.
+Layar `Distribution` menampilkan perilaku ALPHA, konsentrasi issued share, total per fase skenario, dan split per source system dari run yang sudah selesai.
 
 ### Treasury
 
-Layar `Treasury` menampilkan metrik yang terkait sustainability seperti payout pressure dan reserve runway.
+Layar `Treasury` menampilkan company cashflow truth lebih dulu, lalu treasury health signals.
+
+Isinya saat ini meliputi:
+
+- gross cash in
+- retained revenue
+- partner payout out
+- direct reward obligations
+- pool funding obligations
+- actual payout out
+- product fulfillment out
+- net treasury delta
+- treasury pressure
+- reserve runway
+- internal use rate
+- concentration risk
 
 ### Compare
 
-Layar `Compare` menampilkan perbandingan metrik secara side-by-side antar completed runs.
+Layar `Compare` menampilkan sekumpulan completed runs terpilih secara side-by-side dengan struktur cashflow-first.
+
+Isinya saat ini meliputi:
+
+- selected scenario bar dan manage panel
+- radar quick-scan
+- compare decision snapshot
+- business cashflow comparison
+- ALPHA policy comparison
+- treasury risk comparison
+- distribution comparison
+- strategic-goal comparison
+- milestone comparison
+- run context dan audit trail
 
 ### Decision Pack
 
 Layar `Decision Pack` menampilkan rekomendasi untuk founder yang dihasilkan dari completed run.
 
+Fokus utamanya saat ini adalah:
+
+- policy verdict
+- context scenario
+- evaluated scenario basis
+- blockers atau rejection reasons
+- unresolved questions
+- evidence strategic goals
+- milestone gates
+- export full simulation report
+
 ## Roles
 
 ### Founder
 
-Bisa membaca output tingkat tinggi dan mengekspor decision pack, tetapi dalam mapping role saat ini tidak bisa membuat scenario atau menjalankan run.
+Bisa membaca output tingkat tinggi dan mengekspor full simulation report yang founder-facing, tetapi dalam mapping role saat ini tidak bisa membuat scenario atau menjalankan run.
 
 ### Analyst
 
@@ -503,7 +546,13 @@ Dipicu ketika reward terlalu terkonsentrasi pada cohort teratas.
 
 ## Policy Status Pada Decision Pack
 
-Engine saat ini menghasilkan satu dari tiga status rekomendasi.
+Engine saat ini menghasilkan satu dari tiga status rekomendasi secara internal.
+
+Di surface founder-facing, mapping label-nya adalah:
+
+- `candidate` -> `Ready`
+- `risky` -> `Needs Review`
+- `rejected` -> `Do Not Use`
 
 ### `candidate`
 
@@ -548,9 +597,9 @@ Validasi snapshot import saat ini memeriksa:
 Simulator saat ini sudah dataset-driven pada granularitas `member-month`, tetapi masih memiliki keterbatasan penting di level MVP:
 
 - belum ada replay event mentah
+- beberapa rule understanding doc yang exact masih butuh canonical JSON, bukan compatibility CSV
 - belum ada sinkronisasi langsung ke production
 - belum ada suite regression fixture yang terkalibrasi
-- belum ada kolom CSV opsional yang lebih kaya yang dipakai aktif
 - approval dan metadata validation masih terpisah dari logika penyelesaian import-run
 
 Jadi simulator saat ini sebaiknya dipahami sebagai:

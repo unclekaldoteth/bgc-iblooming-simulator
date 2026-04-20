@@ -9,6 +9,9 @@ Internal decision console for simulating `ALPHA` use and distribution across the
 - [SIMULATOR_MEETING_GLOSSARY_ID.md](/Users/fabiomaulana/Documents/bgc%20simulator/SIMULATOR_MEETING_GLOSSARY_ID.md): Indonesian meeting-friendly glossary for key terms on Snapshots, Run, and Compare pages
 - [SIMULATOR_FLOW.md](/Users/fabiomaulana/Documents/bgc%20simulator/SIMULATOR_FLOW.md): English presentation-friendly flow of the simulator, screen by screen
 - [SIMULATOR_FLOW_ID.md](/Users/fabiomaulana/Documents/bgc%20simulator/SIMULATOR_FLOW_ID.md): Indonesian presentation-friendly flow of the simulator, screen by screen
+- [SIMULATOR_FAITHFUL_DATA_MODEL_SPEC.md](/Users/fabiomaulana/Documents/bgc%20simulator/SIMULATOR_FAITHFUL_DATA_MODEL_SPEC.md): faithful snapshot contract and compatibility guidance for understanding-doc-aligned imports
+- [COMPANY_CASHFLOW_LENS_SPEC.md](/Users/fabiomaulana/Documents/bgc%20simulator/COMPANY_CASHFLOW_LENS_SPEC.md): company cashflow metrics separated from ALPHA policy math
+- [SCENARIO_PARAMETER_GUARDRAIL_MATRIX.md](/Users/fabiomaulana/Documents/bgc%20simulator/SCENARIO_PARAMETER_GUARDRAIL_MATRIX.md): founder-safe scenario parameter rules and locked levers
 - [bgc-alpha-simulator-data-baseline-build-plan-v1.md](/Users/fabiomaulana/Documents/bgc%20simulator/bgc-alpha-simulator-data-baseline-build-plan-v1.md): implementation plan and current progress for canonical ingestion and dataset-driven simulation
 - [bgc-alpha-simulator-calibration-workflow-v1.md](/Users/fabiomaulana/Documents/bgc%20simulator/bgc-alpha-simulator-calibration-workflow-v1.md): calibration workflow and current sample calibration findings
 - [bgc-alpha-simulator-mvp-execution-plan-v1.md](/Users/fabiomaulana/Documents/bgc%20simulator/bgc-alpha-simulator-mvp-execution-plan-v1.md): MVP execution plan with current implementation status notes
@@ -25,11 +28,15 @@ This repository now supports the main internal simulator loop:
 
 - internal auth and RBAC
 - snapshot registration, metadata validation, approval, and canonical CSV import
+- understanding-doc-strict compatibility validation for faithful snapshot CSV uploads
 - executable `model-v1` baseline ruleset
-- scenario creation and persistence
+- founder-safe scenario creation and persistence with locked understanding-doc levers
 - queued run orchestration with worker processing
 - dataset-driven simulation over imported `SnapshotMemberMonthFact` rows
-- persisted results, compare views, distribution, treasury, and decision packs
+- persisted results across summary, distribution, treasury, compare, and decision-pack views
+- company cashflow lens separated from ALPHA policy outputs in run, treasury, compare, and export surfaces
+- compare workflow with selected-run management, radar quick-scan, and cashflow-first comparison tables
+- founder-facing full simulation report export from run and compare surfaces
 - sample canonical CSV import file for local testing
 
 ## Next Steps

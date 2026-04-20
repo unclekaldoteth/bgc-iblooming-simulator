@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
 import {
   createSimulationRunIfUnique,
   getScenarioById,
@@ -10,6 +11,10 @@ import {
   processSimulationRun,
   writeAuditEvent
 } from "@bgc-alpha/db";
+import {
+  evaluateFounderScenarioGuardrails,
+  parseFounderSafeScenarioParameters
+} from "@bgc-alpha/schemas";
 
 import { jsonError } from "@/lib/http";
 import { enqueueJob } from "@/lib/queue";
@@ -39,6 +44,31 @@ export async function launchSimulationRun({
         },
         {
           status: 404
+        }
+      );
+    }
+
+    const baselineModel = resolveBaselineModelRuleset(
+      scenario.modelVersion.rulesetJson,
+      scenario.modelVersion.versionName
+    );
+    const scenarioParameters = parseFounderSafeScenarioParameters(scenario.parameterJson, {
+      reward_global_factor: baselineModel.defaults.reward_global_factor,
+      reward_pool_factor: baselineModel.defaults.reward_pool_factor
+    });
+    const guardrailIssues = evaluateFounderScenarioGuardrails(scenarioParameters, {
+      reward_global_factor: baselineModel.defaults.reward_global_factor,
+      reward_pool_factor: baselineModel.defaults.reward_pool_factor
+    });
+
+    if (guardrailIssues.some((issue) => issue.severity === "ERROR")) {
+      return NextResponse.json(
+        {
+          error: "scenario_guardrail_failed",
+          guardrailIssues
+        },
+        {
+          status: 400
         }
       );
     }
@@ -97,7 +127,7 @@ export async function launchSimulationRun({
           snapshotId: snapshot.id,
           baselineModelVersionId: scenario.modelVersionId,
           scenarioId: scenario.id,
-          parameters: scenario.parameterJson
+          parameters: scenarioParameters
         })
       )
       .digest("hex");

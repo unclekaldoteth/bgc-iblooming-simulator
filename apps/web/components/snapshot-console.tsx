@@ -2,7 +2,7 @@
 
 import { upload } from "@vercel/blob/client";
 import { useRouter } from "next/navigation";
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import type { AppSessionUser } from "@/lib/auth-session";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/lib/common-language";
 import {
   createSnapshotUploadPathname,
-  isSnapshotCsvFilename,
+  isSnapshotDataFilename,
   maxSnapshotUploadBytes
 } from "@/lib/snapshot-upload";
 
@@ -88,10 +88,14 @@ function getStatusBadgeClass(status: string) {
   }
 }
 
+function isActiveImportStatus(status: string | null | undefined) {
+  return status === "QUEUED" || status === "RUNNING";
+}
+
 function getProgressSteps(snapshot: SnapshotRecord) {
   const created = true;
   const imported = snapshot.importedFactCount > 0 || snapshot.latestImportRun?.status === "COMPLETED";
-  const importing = snapshot.latestImportRun?.status === "RUNNING" || snapshot.latestImportRun?.status === "QUEUED";
+  const importing = isActiveImportStatus(snapshot.latestImportRun?.status);
   const validated = ["VALID", "APPROVED"].includes(snapshot.validationStatus);
   const validating = snapshot.validationStatus === "VALIDATING";
   const approved = snapshot.validationStatus === "APPROVED";
@@ -150,6 +154,23 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
   const canWrite = user.capabilities.includes("snapshots.write");
   const canValidate = user.capabilities.includes("snapshots.validate");
   const canApprove = user.capabilities.includes("snapshots.approve");
+  const hasActiveImport = snapshots.some((snapshot) =>
+    isActiveImportStatus(snapshot.latestImportRun?.status)
+  );
+
+  useEffect(() => {
+    if (!hasActiveImport) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      router.refresh();
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasActiveImport, router]);
 
   function toggleIssues(id: string) {
     setExpandedIssues(prev => {
@@ -197,18 +218,18 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
               startTransition(async () => {
                 const manualFileUri = formState.fileUri.trim();
                 if (!selectedFile && !manualFileUri) {
-                  setMessage("Upload a CSV or enter a file path.");
+                  setMessage("Upload a canonical JSON/CSV file or enter a file path.");
                   return;
                 }
                 let resolvedFileUri = manualFileUri;
                 if (selectedFile) {
-                  if (!isSnapshotCsvFilename(selectedFile.name)) {
-                    setMessage("Only .csv files are supported.");
+                  if (!isSnapshotDataFilename(selectedFile.name)) {
+                    setMessage("Only .csv or .json files are supported.");
                     return;
                   }
 
                   if (selectedFile.size > maxSnapshotUploadBytes) {
-                    setMessage("CSV upload exceeds the 10 MB limit.");
+                    setMessage("Snapshot upload exceeds the 10 MB limit.");
                     return;
                   }
 
@@ -300,8 +321,8 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
             </div>
             <div className="inline-fields">
               <label className="field">
-                <span>CSV file</span>
-                <input accept=".csv,text/csv" disabled={!canWrite || isPending} onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)} ref={fileInputRef} type="file" />
+                <span>Snapshot file</span>
+                <input accept=".csv,.json,text/csv,application/json,text/json" disabled={!canWrite || isPending} onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)} ref={fileInputRef} type="file" />
               </label>
               <label className="field">
                 <span>File path (optional)</span>
@@ -422,7 +443,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
                 <div className="snapshot-card-actions">
                   <button
                     className="ghost-button"
-                    disabled={!canWrite || isPending || snapshot.latestImportRun?.status === "RUNNING"}
+                    disabled={!canWrite || isPending || isActiveImportStatus(snapshot.latestImportRun?.status)}
                     onClick={() => {
                       startTransition(async () => {
                         const response = await fetch(`/api/snapshots/${snapshot.id}/import`, { method: "POST" });
@@ -451,7 +472,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
                       !canValidate ||
                       isPending ||
                       snapshot.importedFactCount === 0 ||
-                      ["QUEUED", "RUNNING"].includes(snapshot.latestImportRun?.status ?? "")
+                      isActiveImportStatus(snapshot.latestImportRun?.status)
                     }
                     onClick={() => {
                       startTransition(async () => {
@@ -475,7 +496,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
                       !canApprove ||
                       isPending ||
                       snapshot.importedFactCount === 0 ||
-                      ["QUEUED", "RUNNING"].includes(snapshot.latestImportRun?.status ?? "") ||
+                      isActiveImportStatus(snapshot.latestImportRun?.status) ||
                       !["VALID", "APPROVED"].includes(snapshot.validationStatus)
                     }
                     onClick={() => {
@@ -519,6 +540,27 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, user }: Snapsho
                         <line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
                       Export Data
+                    </button>
+                    <button
+                      className="ghost-button snapshot-export-btn"
+                      disabled={isPending}
+                      onClick={() => {
+                        const link = document.createElement("a");
+                        link.href = `/api/snapshots/${snapshot.id}/export?format=canonical`;
+                        link.download = "";
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        setMessage(`Exporting canonical data for ${snapshot.name}...`);
+                      }}
+                      type="button"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Export Canonical
                     </button>
                   </div>
                 ) : null}

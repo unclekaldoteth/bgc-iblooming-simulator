@@ -1,6 +1,7 @@
 import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
 import {
-  scenarioParametersSchema,
+  evaluateFounderScenarioGuardrails,
+  parseFounderSafeScenarioParameters,
   type DecisionPack,
   type MilestoneEvaluation,
   type RunFlag,
@@ -11,7 +12,7 @@ import {
 import { evaluateRecommendation, simulateScenario } from "@bgc-alpha/simulation-core";
 
 import { upsertRunDecisionPack } from "./decision-packs";
-import { listSnapshotMemberMonthFacts } from "./snapshots";
+import { listSnapshotMemberMonthFacts, listSnapshotPoolPeriodFacts } from "./snapshots";
 import {
   getRunById,
   markRunFailed,
@@ -19,6 +20,13 @@ import {
   persistCompletedRun
 } from "./runs";
 import { writeAuditEvent } from "./audit";
+
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  style: "currency"
+});
 
 function readMetadataRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -38,26 +46,206 @@ function readOptionalBoolean(value: unknown) {
   return typeof value === "boolean" ? value : null;
 }
 
-function buildSummary(run: Awaited<ReturnType<typeof getRunById>>): SummaryMetrics {
+function readRecordAlias(
+  record: Record<string, unknown> | null,
+  aliases: string[]
+) {
+  if (!record) {
+    return null;
+  }
+
+  for (const alias of aliases) {
+    const candidate = readMetadataRecord(record[alias]);
+
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function readNumberAlias(
+  record: Record<string, unknown> | null,
+  aliases: string[]
+) {
+  if (!record) {
+    return null;
+  }
+
+  for (const alias of aliases) {
+    const candidate = readOptionalNumber(record[alias]);
+
+    if (candidate !== null) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function readStringAlias(
+  record: Record<string, unknown> | null,
+  aliases: string[]
+) {
+  if (!record) {
+    return null;
+  }
+
+  for (const alias of aliases) {
+    const candidate = readOptionalString(record[alias]);
+
+    if (candidate !== null) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function buildPoolFundingEntries(
+  metadata: Record<string, unknown> | null,
+  periodKey: string,
+  sourceSystem: string
+) {
+  const poolFundingBasis = readRecordAlias(metadata, ["pool_funding_basis", "poolFundingBasis"]);
+  const poolShareSnapshot = readRecordAlias(metadata, ["pool_share_snapshot", "poolShareSnapshot"]);
+
+  if (!poolFundingBasis) {
+    return null;
+  }
+
+  const entries = Object.entries(poolFundingBasis)
+    .flatMap(([poolCode, poolValue]) => {
+      const normalizedPoolValue = readMetadataRecord(poolValue);
+
+      if (!normalizedPoolValue) {
+        return [];
+      }
+
+      const fundingAmount = readNumberAlias(normalizedPoolValue, ["funding_amount", "fundingAmount"]);
+
+      if (!(fundingAmount && fundingAmount > 0)) {
+        return [];
+      }
+
+      const distributionAmount =
+        readNumberAlias(normalizedPoolValue, ["distribution_amount", "distributionAmount"]) ?? 0;
+      const distributionCycle =
+        readStringAlias(normalizedPoolValue, ["distribution_cycle", "distributionCycle"]) ?? "ADHOC";
+      const shareSnapshot = poolShareSnapshot
+        ? readMetadataRecord(poolShareSnapshot[poolCode])
+        : null;
+      const eligibilitySnapshotKey =
+        readStringAlias(shareSnapshot, ["eligibility_snapshot_key", "eligibilitySnapshotKey"]) ??
+        `${periodKey}::${sourceSystem}::${poolCode}::${distributionCycle}`;
+
+      return [
+        {
+          poolCode,
+          fundingAmount,
+          distributionAmount,
+          distributionCycle,
+          cycleKey: eligibilitySnapshotKey
+        }
+      ];
+    })
+    .sort((left, right) => left.poolCode.localeCompare(right.poolCode));
+
+  return entries.length > 0 ? entries : null;
+}
+
+function buildSimulationFact(
+  fact: Awaited<ReturnType<typeof listSnapshotMemberMonthFacts>>[number]
+) {
+  const metadata = readMetadataRecord(fact.metadataJson);
+  const recognizedRevenueUsd =
+    readNumberAlias(metadata, ["recognizedRevenueUsd", "recognized_revenue_usd"]);
+  const grossMarginUsd =
+    readNumberAlias(metadata, ["grossMarginUsd", "gross_margin_usd"]);
+  const memberJoinPeriod =
+    readStringAlias(metadata, ["memberJoinPeriod", "member_join_period"]);
+  const isAffiliate =
+    readOptionalBoolean(metadata?.isAffiliate) ?? readOptionalBoolean(metadata?.is_affiliate);
+  const crossAppActive =
+    readOptionalBoolean(metadata?.crossAppActive) ?? readOptionalBoolean(metadata?.cross_app_active);
+  const recognizedRevenueBasis = readRecordAlias(metadata, [
+    "recognized_revenue_basis",
+    "recognizedRevenueBasis"
+  ]);
+  const sinkBreakdown = readRecordAlias(metadata, ["sink_breakdown_usd", "sinkBreakdownUsd"]);
+  const entryFeeUsd = readNumberAlias(recognizedRevenueBasis, ["entry_fee_usd", "entryFeeUsd"]);
+  const grossSaleUsd = readNumberAlias(recognizedRevenueBasis, ["gross_sale_usd", "grossSaleUsd"]);
+  const cpUserShareUsd = readNumberAlias(recognizedRevenueBasis, ["cp_user_share_usd", "cpUserShareUsd"]);
+  const ibPlatformRevenueUsd = readNumberAlias(recognizedRevenueBasis, [
+    "ib_platform_revenue_usd",
+    "ibPlatformRevenueUsd"
+  ]);
+  const productFulfillmentOutUsd = readNumberAlias(sinkBreakdown, ["PC_SPEND"]);
+
+  let grossCashInUsd: number | null = null;
+  let retainedRevenueUsd: number | null = recognizedRevenueUsd;
+  let partnerPayoutOutUsd: number | null = null;
+
+  if (entryFeeUsd !== null) {
+    grossCashInUsd = entryFeeUsd;
+    retainedRevenueUsd = entryFeeUsd;
+  } else if (grossSaleUsd !== null) {
+    grossCashInUsd = grossSaleUsd;
+    retainedRevenueUsd = ibPlatformRevenueUsd ?? recognizedRevenueUsd;
+    partnerPayoutOutUsd = cpUserShareUsd;
+  } else if (recognizedRevenueUsd !== null) {
+    grossCashInUsd = recognizedRevenueUsd;
+    retainedRevenueUsd = recognizedRevenueUsd;
+  }
+
   return {
-    alpha_issued_total: run?.summaryMetrics.find((metric) => metric.metricKey === "alpha_issued_total")
-      ?.metricValue ?? 0,
-    alpha_spent_total: run?.summaryMetrics.find((metric) => metric.metricKey === "alpha_spent_total")
-      ?.metricValue ?? 0,
-    alpha_held_total: run?.summaryMetrics.find((metric) => metric.metricKey === "alpha_held_total")
-      ?.metricValue ?? 0,
-    alpha_cashout_equivalent_total:
-      run?.summaryMetrics.find((metric) => metric.metricKey === "alpha_cashout_equivalent_total")
-        ?.metricValue ?? 0,
-    sink_utilization_rate:
-      run?.summaryMetrics.find((metric) => metric.metricKey === "sink_utilization_rate")?.metricValue ?? 0,
-    payout_inflow_ratio:
-      run?.summaryMetrics.find((metric) => metric.metricKey === "payout_inflow_ratio")?.metricValue ?? 0,
-    reserve_runway_months:
-      run?.summaryMetrics.find((metric) => metric.metricKey === "reserve_runway_months")?.metricValue ?? 0,
-    reward_concentration_top10_pct:
-      run?.summaryMetrics.find((metric) => metric.metricKey === "reward_concentration_top10_pct")
-        ?.metricValue ?? 0
+    periodKey: fact.periodKey,
+    memberKey: fact.memberKey,
+    sourceSystem: fact.sourceSystem,
+    memberTier: fact.memberTier,
+    groupKey: fact.groupKey,
+    pcVolume: fact.pcVolume,
+    spRewardBasis: fact.spRewardBasis,
+    globalRewardUsd: fact.globalRewardUsd,
+    poolRewardUsd: fact.poolRewardUsd,
+    cashoutUsd: fact.cashoutUsd,
+    sinkSpendUsd: fact.sinkSpendUsd,
+    activeMember: fact.activeMember,
+    recognizedRevenueUsd,
+    grossMarginUsd,
+    memberJoinPeriod,
+    isAffiliate,
+    crossAppActive,
+    grossCashInUsd,
+    retainedRevenueUsd,
+    partnerPayoutOutUsd,
+    productFulfillmentOutUsd,
+    poolFundingEntries: buildPoolFundingEntries(metadata, fact.periodKey, fact.sourceSystem)
+  };
+}
+
+function buildSummary(run: Awaited<ReturnType<typeof getRunById>>): SummaryMetrics {
+  const metricValue = (metricKey: string) =>
+    run?.summaryMetrics.find((metric) => metric.metricKey === metricKey)?.metricValue ?? 0;
+
+  return {
+    alpha_issued_total: metricValue("alpha_issued_total"),
+    alpha_spent_total: metricValue("alpha_spent_total"),
+    alpha_held_total: metricValue("alpha_held_total"),
+    alpha_cashout_equivalent_total: metricValue("alpha_cashout_equivalent_total"),
+    company_gross_cash_in_total: metricValue("company_gross_cash_in_total"),
+    company_retained_revenue_total: metricValue("company_retained_revenue_total"),
+    company_partner_payout_out_total: metricValue("company_partner_payout_out_total"),
+    company_direct_reward_obligation_total: metricValue("company_direct_reward_obligation_total"),
+    company_pool_funding_obligation_total: metricValue("company_pool_funding_obligation_total"),
+    company_actual_payout_out_total: metricValue("company_actual_payout_out_total"),
+    company_product_fulfillment_out_total: metricValue("company_product_fulfillment_out_total"),
+    company_net_treasury_delta_total: metricValue("company_net_treasury_delta_total"),
+    sink_utilization_rate: metricValue("sink_utilization_rate"),
+    payout_inflow_ratio: metricValue("payout_inflow_ratio"),
+    reserve_runway_months: metricValue("reserve_runway_months"),
+    reward_concentration_top10_pct: metricValue("reward_concentration_top10_pct")
   };
 }
 
@@ -89,7 +277,10 @@ function buildDecisionPack(
     flags,
     baselineModel.recommendationThresholds
   );
-  const parameters = scenarioParametersSchema.parse(run.scenario.parameterJson);
+  const parameters = parseFounderSafeScenarioParameters(run.scenario.parameterJson, {
+    reward_global_factor: baselineModel.defaults.reward_global_factor,
+    reward_pool_factor: baselineModel.defaults.reward_pool_factor
+  });
   const strongObjectives = strategicObjectives.filter((objective) => objective.status === "candidate");
   const weakObjectives = strategicObjectives.filter((objective) => objective.status === "rejected");
   const proxyObjectives = strategicObjectives.filter((objective) => objective.evidence_level !== "direct");
@@ -102,14 +293,25 @@ function buildDecisionPack(
     recommendation:
       recommendation.policy_status === "candidate"
         ? strongObjectives.length > 0
-          ? "This scenario stays within the current treasury thresholds and also shows strategic upside in at least one objective area."
-          : "This scenario stays within the current treasury thresholds, but the strategic upside remains limited."
+          ? "This scenario stays within the current treasury thresholds when measured against imported recognized revenue support and snapshot reward distributions, and the cashflow lens remains readable enough for founder review."
+          : "This scenario stays within the current treasury thresholds when measured against imported recognized revenue support and snapshot reward distributions, but the strategic upside remains limited."
         : recommendation.policy_status === "risky"
-          ? "This scenario is usable for discussion, but treasury or concentration flags still need founder review before adoption."
-          : "This scenario breaches core treasury safety thresholds and should not be used as the pilot default.",
+          ? "This scenario is usable for discussion, but treasury pressure, concentration, or cashflow clarity still need founder review before adoption."
+          : "This scenario breaches core treasury safety thresholds against recognized revenue support or produces an unacceptable cashflow posture and should not be used as the pilot default.",
     preferred_settings: [
-      `Snapshot: ${run.snapshot.name}`,
-      `Template: ${run.scenario.templateType}`,
+      `Evaluated snapshot: ${run.snapshot.name}`,
+      `Evaluated template: ${run.scenario.templateType}`,
+      "Evaluation basis: imported recognized revenue support + snapshot reward distributions",
+      `Gross cash in: ${currencyFormatter.format(summary.company_gross_cash_in_total)}`,
+      `Retained revenue: ${currencyFormatter.format(summary.company_retained_revenue_total)}`,
+      `Partner payout out: ${currencyFormatter.format(summary.company_partner_payout_out_total)}`,
+      `Direct reward obligations: ${currencyFormatter.format(summary.company_direct_reward_obligation_total)}`,
+      `Pool funding obligations: ${currencyFormatter.format(summary.company_pool_funding_obligation_total)}`,
+      `Actual payout out: ${currencyFormatter.format(summary.company_actual_payout_out_total)}`,
+      `Product fulfillment out: ${currencyFormatter.format(summary.company_product_fulfillment_out_total)}`,
+      `Net treasury delta: ${currencyFormatter.format(summary.company_net_treasury_delta_total)}`,
+      `Treasury pressure: ${summary.payout_inflow_ratio.toFixed(2)}x`,
+      `Reserve runway: ${summary.reserve_runway_months.toFixed(2)} months`,
       `k_pc: ${parameters.k_pc}`,
       `k_sp: ${parameters.k_sp}`,
       `Cash-out mode: ${parameters.cashout_mode}`,
@@ -144,7 +346,9 @@ function buildDecisionPack(
       )
     ],
     unresolved_questions: [
-      "Confirm whether the pilot should keep the current cash-out baseline or use a windowed override.",
+      "Confirm whether the selected snapshot has complete recognized revenue fields for the period under review.",
+      "Confirm whether gross-cash, partner-payout, and product-fulfillment fields are complete enough for the current cashflow lens.",
+      "Confirm whether the pilot should keep the current cash-out policy baseline or use a windowed override.",
       "Confirm whether the sink target aligns with the initial utility scope approved for Phase 1.",
       ...riskyMilestones.map(
         (milestone) =>
@@ -202,7 +406,10 @@ export async function processSimulationRun(runId: string) {
 
   if (run.status === "COMPLETED") {
     if (!run.decisionPacks[0]) {
-      const facts = await listSnapshotMemberMonthFacts(run.snapshotId);
+      const [facts, poolPeriodFacts] = await Promise.all([
+        listSnapshotMemberMonthFacts(run.snapshotId),
+        listSnapshotPoolPeriodFacts(run.snapshotId)
+      ]);
       const baselineModel = resolveBaselineModelRuleset(
         run.modelVersion.rulesetJson,
         run.modelVersion.versionName
@@ -214,41 +421,38 @@ export async function processSimulationRun(runId: string) {
           id: run.scenario.id,
           name: run.scenario.name,
           template: run.scenario.templateType as "Baseline" | "Conservative" | "Growth" | "Stress",
-          parameters: scenarioParametersSchema.parse(run.scenario.parameterJson)
+          parameters: parseFounderSafeScenarioParameters(run.scenario.parameterJson, {
+            reward_global_factor: baselineModel.defaults.reward_global_factor,
+            reward_pool_factor: baselineModel.defaults.reward_pool_factor
+          })
         }
       };
+      const guardrailIssues = evaluateFounderScenarioGuardrails(input.scenario.parameters, {
+        reward_global_factor: baselineModel.defaults.reward_global_factor,
+        reward_pool_factor: baselineModel.defaults.reward_pool_factor
+      });
+
+      if (guardrailIssues.some((issue) => issue.severity === "ERROR")) {
+        throw new Error(
+          guardrailIssues
+            .filter((issue) => issue.severity === "ERROR")
+            .map((issue) => issue.message)
+            .join(" ")
+        );
+      }
+
       const result = simulateScenario({
         request: input,
-        facts: facts.map((fact) => ({
-          ...(readMetadataRecord(fact.metadataJson)
-            ? {
-                recognizedRevenueUsd: readOptionalNumber(
-                  readMetadataRecord(fact.metadataJson)?.recognizedRevenueUsd
-                ),
-                grossMarginUsd: readOptionalNumber(
-                  readMetadataRecord(fact.metadataJson)?.grossMarginUsd
-                ),
-                memberJoinPeriod: readOptionalString(
-                  readMetadataRecord(fact.metadataJson)?.memberJoinPeriod
-                ),
-                isAffiliate: readOptionalBoolean(readMetadataRecord(fact.metadataJson)?.isAffiliate),
-                crossAppActive: readOptionalBoolean(
-                  readMetadataRecord(fact.metadataJson)?.crossAppActive
-                )
-              }
-            : {}),
+        facts: facts.map(buildSimulationFact),
+        poolPeriodFacts: poolPeriodFacts.map((fact) => ({
           periodKey: fact.periodKey,
-          memberKey: fact.memberKey,
-          sourceSystem: fact.sourceSystem,
-          memberTier: fact.memberTier,
-          groupKey: fact.groupKey,
-          pcVolume: fact.pcVolume,
-          spRewardBasis: fact.spRewardBasis,
-          globalRewardUsd: fact.globalRewardUsd,
-          poolRewardUsd: fact.poolRewardUsd,
-          cashoutUsd: fact.cashoutUsd,
-          sinkSpendUsd: fact.sinkSpendUsd,
-          activeMember: fact.activeMember
+          poolCode: fact.poolCode,
+          distributionCycle: fact.distributionCycle,
+          unit: fact.unit,
+          fundingAmount: fact.fundingAmount,
+          distributionAmount: fact.distributionAmount,
+          recipientCount: fact.recipientCount,
+          shareCountTotal: fact.shareCountTotal
         })),
         baselineModel
       });
@@ -269,6 +473,10 @@ export async function processSimulationRun(runId: string) {
     return run;
   }
 
+  const baselineModel = resolveBaselineModelRuleset(
+    run.modelVersion.rulesetJson,
+    run.modelVersion.versionName
+  );
   const input: SimulationRunRequest = {
     snapshotId: run.snapshotId,
     baselineModelVersionId: run.modelVersionId,
@@ -276,51 +484,33 @@ export async function processSimulationRun(runId: string) {
       id: run.scenario.id,
       name: run.scenario.name,
       template: run.scenario.templateType as "Baseline" | "Conservative" | "Growth" | "Stress",
-      parameters: scenarioParametersSchema.parse(run.scenario.parameterJson)
+      parameters: parseFounderSafeScenarioParameters(run.scenario.parameterJson, {
+        reward_global_factor: baselineModel.defaults.reward_global_factor,
+        reward_pool_factor: baselineModel.defaults.reward_pool_factor
+      })
     }
   };
 
   try {
     await markRunStarted(runId);
 
-    const facts = await listSnapshotMemberMonthFacts(run.snapshotId);
-    const baselineModel = resolveBaselineModelRuleset(
-      run.modelVersion.rulesetJson,
-      run.modelVersion.versionName
-    );
+    const [facts, poolPeriodFacts] = await Promise.all([
+      listSnapshotMemberMonthFacts(run.snapshotId),
+      listSnapshotPoolPeriodFacts(run.snapshotId)
+    ]);
 
     const result = simulateScenario({
       request: input,
-      facts: facts.map((fact) => ({
-        ...(readMetadataRecord(fact.metadataJson)
-          ? {
-              recognizedRevenueUsd: readOptionalNumber(
-                readMetadataRecord(fact.metadataJson)?.recognizedRevenueUsd
-              ),
-              grossMarginUsd: readOptionalNumber(
-                readMetadataRecord(fact.metadataJson)?.grossMarginUsd
-              ),
-              memberJoinPeriod: readOptionalString(
-                readMetadataRecord(fact.metadataJson)?.memberJoinPeriod
-              ),
-              isAffiliate: readOptionalBoolean(readMetadataRecord(fact.metadataJson)?.isAffiliate),
-              crossAppActive: readOptionalBoolean(
-                readMetadataRecord(fact.metadataJson)?.crossAppActive
-              )
-            }
-          : {}),
+      facts: facts.map(buildSimulationFact),
+      poolPeriodFacts: poolPeriodFacts.map((fact) => ({
         periodKey: fact.periodKey,
-        memberKey: fact.memberKey,
-        sourceSystem: fact.sourceSystem,
-        memberTier: fact.memberTier,
-        groupKey: fact.groupKey,
-        pcVolume: fact.pcVolume,
-        spRewardBasis: fact.spRewardBasis,
-        globalRewardUsd: fact.globalRewardUsd,
-        poolRewardUsd: fact.poolRewardUsd,
-        cashoutUsd: fact.cashoutUsd,
-        sinkSpendUsd: fact.sinkSpendUsd,
-        activeMember: fact.activeMember
+        poolCode: fact.poolCode,
+        distributionCycle: fact.distributionCycle,
+        unit: fact.unit,
+        fundingAmount: fact.fundingAmount,
+        distributionAmount: fact.distributionAmount,
+        recipientCount: fact.recipientCount,
+        shareCountTotal: fact.shareCountTotal
       })),
       baselineModel
     });

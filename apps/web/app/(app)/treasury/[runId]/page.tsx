@@ -19,8 +19,31 @@ function getGaugeStatus(key: string, value: number) {
   if (key === "reserve_runway_months") return value < 6 ? "danger" : value < 12 ? "warning" : "safe";
   if (key === "sink_utilization_rate") return value < 20 ? "danger" : value < 30 ? "warning" : "safe";
   if (key === "reward_concentration_top10_pct") return value > 60 ? "danger" : value > 45 ? "warning" : "safe";
+  if (key === "company_net_treasury_delta_total") return value < 0 ? "danger" : "safe";
   return "safe";
 }
+
+const treasuryPositionMetricKeys = [
+  "company_gross_cash_in_total",
+  "company_retained_revenue_total",
+  "company_net_treasury_delta_total",
+  "company_actual_payout_out_total"
+] as const;
+
+const obligationMetricKeys = [
+  "company_partner_payout_out_total",
+  "company_direct_reward_obligation_total",
+  "company_pool_funding_obligation_total",
+  "company_product_fulfillment_out_total",
+  "company_actual_payout_out_total"
+] as const;
+
+const healthSignalMetricKeys = [
+  "payout_inflow_ratio",
+  "reserve_runway_months",
+  "sink_utilization_rate",
+  "reward_concentration_top10_pct"
+] as const;
 
 export default async function TreasuryPage({
   params
@@ -49,24 +72,24 @@ export default async function TreasuryPage({
     run.summaryMetrics.map((m) => [m.metricKey, m.metricValue])
   ) as Record<string, number>;
 
-  const treasuryMetricKeys = [
-    "alpha_cashout_equivalent_total",
-    "sink_utilization_rate",
-    "payout_inflow_ratio",
-    "reserve_runway_months",
-    "reward_concentration_top10_pct"
-  ] as const;
+  const cashflowMetricKeys = summaryMetricDefinitions
+    .filter((definition) => definition.group === "cashflow")
+    .map((definition) => definition.key);
 
-  const treasuryMetrics = treasuryMetricKeys.map((key) => ({
+  const buildMetricRows = (keys: readonly string[]) => keys.map((key) => ({
     key,
     label: getCommonMetricLabel(key),
     description: summaryMetricDefinitions.find((d) => d.key === key)?.description ?? "",
     value: summary[key] ?? 0
   }));
+  const treasuryPositionMetrics = buildMetricRows(treasuryPositionMetricKeys);
+  const obligationMetrics = buildMetricRows(obligationMetricKeys);
+  const healthSignalMetrics = buildMetricRows(healthSignalMetricKeys);
+  const cashflowMetrics = buildMetricRows(cashflowMetricKeys);
 
   return (
     <>
-      <PageHeader eyebrow="Treasury" title={`Treasury View · ${getRunReference(runId)}`} description="Payout pressure, reserve runway, and treasury risk for this simulation run." />
+      <PageHeader eyebrow="Treasury" title={`Treasury View · ${getRunReference(runId)}`} description="Treasury pressure plus a cashflow lens that separates cash in, obligations, payouts, and fulfillment." />
 
       {/* Tab nav */}
       <nav className="tab-nav">
@@ -77,34 +100,35 @@ export default async function TreasuryPage({
       </nav>
 
       <section className="page-grid">
-        {/* Gauge Cards */}
-        <div className="span-12 gauge-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-          <div className="gauge-card" data-status={getGaugeStatus("reserve_runway_months", summary.reserve_runway_months ?? 0)}>
-            <p className="metric-label">Reserve Runway</p>
-            <p className="metric">{formatCommonMetricValue("reserve_runway_months", summary.reserve_runway_months ?? 0)}</p>
-            <p className="muted" style={{ fontSize: "0.72rem", marginTop: "0.2rem" }}>Months remaining under this plan</p>
+        {/* Treasury Position */}
+        <Card className="span-12" title="Treasury Position">
+          <p className="card-intro">
+            Company cash position from the cashflow lens. Fiat and cashflow values are shown in $.
+          </p>
+          <div className="decision-kpi-grid">
+            {treasuryPositionMetrics.map((metric) => (
+              <div className="decision-kpi" data-status={getGaugeStatus(metric.key, metric.value)} key={metric.key}>
+                <span>{metric.label}</span>
+                <strong>{formatCommonMetricValue(metric.key, metric.value)}</strong>
+              </div>
+            ))}
           </div>
-          <div className="gauge-card" data-status={getGaugeStatus("payout_inflow_ratio", summary.payout_inflow_ratio ?? 0)}>
-            <p className="metric-label">Treasury Pressure</p>
-            <p className="metric">{formatCommonMetricValue("payout_inflow_ratio", summary.payout_inflow_ratio ?? 0)}</p>
-            <p className="muted" style={{ fontSize: "0.72rem", marginTop: "0.2rem" }}>Above 1.0 = outflow overtaking inflow</p>
-          </div>
-          <div className="gauge-card" data-status={getGaugeStatus("sink_utilization_rate", summary.sink_utilization_rate ?? 0)}>
-            <p className="metric-label">Internal Use Rate</p>
-            <p className="metric">{formatCommonMetricValue("sink_utilization_rate", summary.sink_utilization_rate ?? 0)}</p>
-            <p className="muted" style={{ fontSize: "0.72rem", marginTop: "0.2rem" }}>ALPHA used inside the ecosystem</p>
-          </div>
-        </div>
+        </Card>
 
-        {/* Metrics Table */}
-        <Card className="span-8" title="Treasury Metrics">
+        {/* Cashflow Obligations */}
+        <Card className="span-8" title="Cashflow Obligations">
           <table className="table">
             <thead><tr><th>Measure</th><th>Value</th></tr></thead>
             <tbody>
-              {treasuryMetrics.map((m) => (
-                <tr key={m.key}>
-                  <td><div className="summary-metric-label"><strong>{m.label}</strong><span className="muted">{m.description}</span></div></td>
-                  <td style={{ fontWeight: 600 }}>{formatCommonMetricValue(m.key, m.value)}</td>
+              {obligationMetrics.map((metric) => (
+                <tr key={metric.key}>
+                  <td>
+                    <div className="summary-metric-label">
+                      <strong>{metric.label}</strong>
+                      <span className="muted">{metric.description}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{formatCommonMetricValue(metric.key, metric.value)}</td>
                 </tr>
               ))}
             </tbody>
@@ -113,7 +137,7 @@ export default async function TreasuryPage({
 
         {/* Risk Flags */}
         <Card className="span-4" title="Risk Flags">
-          {run.flags.length === 0 ? <p className="muted">✓ No treasury warnings.</p> : null}
+          {run.flags.length === 0 ? <p className="muted">No treasury warnings.</p> : null}
           {run.flags.length > 0 ? (
             <div className="flag-list">
               {run.flags.map((flag) => (
@@ -124,6 +148,39 @@ export default async function TreasuryPage({
               ))}
             </div>
           ) : null}
+        </Card>
+
+        {/* Treasury Health Signals */}
+        <div className="span-12 gauge-grid" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+          {healthSignalMetrics.map((metric) => (
+            <div className="gauge-card" data-status={getGaugeStatus(metric.key, metric.value)} key={metric.key}>
+              <p className="metric-label">{metric.label}</p>
+              <p className="metric">{formatCommonMetricValue(metric.key, metric.value)}</p>
+              <p className="muted" style={{ fontSize: "0.72rem", marginTop: "0.2rem" }}>{metric.description}</p>
+            </div>
+          ))}
+        </div>
+
+        <Card className="span-12" title="Cashflow Lens Audit Trail">
+          <p className="card-intro">
+            Full cashflow breakdown used by the treasury and decision-pack logic.
+          </p>
+          <table className="table">
+            <thead><tr><th>Measure</th><th>Value</th></tr></thead>
+            <tbody>
+              {cashflowMetrics.map((metric) => (
+                <tr key={metric.key}>
+                  <td>
+                    <div className="summary-metric-label">
+                      <strong>{metric.label}</strong>
+                      <span className="muted">{metric.description}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{formatCommonMetricValue(metric.key, metric.value)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </Card>
       </section>
     </>

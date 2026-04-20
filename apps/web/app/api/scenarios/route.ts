@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
 import {
   createScenario,
   getBaselineModelVersionById,
@@ -7,7 +8,12 @@ import {
   listScenarios,
   writeAuditEvent
 } from "@bgc-alpha/db";
-import { createScenarioSchema } from "@bgc-alpha/schemas";
+import {
+  applyFounderScenarioGuardrails,
+  createScenarioSchema,
+  evaluateFounderScenarioGuardrails,
+  parseFounderSafeScenarioParameters
+} from "@bgc-alpha/schemas";
 
 import { authorizeApiRequest } from "@/lib/auth-session";
 import { jsonError } from "@/lib/http";
@@ -22,7 +28,20 @@ export async function GET() {
   const scenarios = await listScenarios();
 
   return NextResponse.json({
-    scenarios
+    scenarios: scenarios.map((scenario) => {
+      const baselineModel = resolveBaselineModelRuleset(
+        scenario.modelVersion.rulesetJson,
+        scenario.modelVersion.versionName
+      );
+
+      return {
+        ...scenario,
+        parameterJson: parseFounderSafeScenarioParameters(scenario.parameterJson, {
+          reward_global_factor: baselineModel.defaults.reward_global_factor,
+          reward_pool_factor: baselineModel.defaults.reward_pool_factor
+        })
+      };
+    })
   });
 }
 
@@ -64,10 +83,35 @@ export async function POST(request: Request) {
       }
     }
 
+    const baselineModel = resolveBaselineModelRuleset(
+      modelVersion.rulesetJson,
+      modelVersion.versionName
+    );
+    const sanitizedParameters = applyFounderScenarioGuardrails(payload.parameters, {
+      reward_global_factor: baselineModel.defaults.reward_global_factor,
+      reward_pool_factor: baselineModel.defaults.reward_pool_factor
+    });
+    const guardrailIssues = evaluateFounderScenarioGuardrails(payload.parameters, {
+      reward_global_factor: baselineModel.defaults.reward_global_factor,
+      reward_pool_factor: baselineModel.defaults.reward_pool_factor
+    });
+
+    if (guardrailIssues.some((issue) => issue.severity === "ERROR")) {
+      return NextResponse.json(
+        {
+          error: "scenario_guardrail_failed",
+          guardrailIssues
+        },
+        {
+          status: 400
+        }
+      );
+    }
+
     const scenario = await createScenario({
       ...payload,
       createdBy: authResult.user.id,
-      parameterJson: payload.parameters
+      parameterJson: sanitizedParameters
     });
 
     await writeAuditEvent({

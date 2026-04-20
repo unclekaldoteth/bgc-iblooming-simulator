@@ -16,7 +16,7 @@ export function evaluateRecommendation(
   ) {
     return {
       policy_status: "rejected" as const,
-      reasons: ["Treasury safety thresholds are violated."]
+      reasons: ["Treasury safety thresholds are violated against the current recognized revenue support."]
     };
   }
 
@@ -29,6 +29,6 @@ export function evaluateRecommendation(
 
   return {
     policy_status: "candidate" as const,
-    reasons: ["Run stays inside the current baseline model thresholds."]
+    reasons: ["Run stays inside the current baseline model thresholds against recognized revenue support."]
   };
 }

@@ -60,6 +60,14 @@ function buildTreasuryRows(run: NonNullable<Awaited<ReturnType<typeof getRunById
   const summaryByKey = new Map(run.summaryMetrics.map((metric) => [metric.metricKey, metric.metricValue] as const));
   const treasuryMetricKeys = [
     "alpha_cashout_equivalent_total",
+    "company_gross_cash_in_total",
+    "company_retained_revenue_total",
+    "company_partner_payout_out_total",
+    "company_direct_reward_obligation_total",
+    "company_pool_funding_obligation_total",
+    "company_actual_payout_out_total",
+    "company_product_fulfillment_out_total",
+    "company_net_treasury_delta_total",
     "sink_utilization_rate",
     "payout_inflow_ratio",
     "reserve_runway_months",
@@ -154,6 +162,10 @@ function buildExportReport(run: NonNullable<Awaited<ReturnType<typeof getRunById
           milestone.summary_metrics.reserve_runway_months
         ),
         topShare: `${milestone.summary_metrics.reward_concentration_top10_pct.toFixed(2)}%`,
+        netDelta: formatCommonMetricValue(
+          "company_net_treasury_delta_total",
+          milestone.summary_metrics.company_net_treasury_delta_total
+        ),
         reasons: milestone.reasons
       }))
     }

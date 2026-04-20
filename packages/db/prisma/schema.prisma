@@ -47,6 +47,141 @@ enum ExportStatus {
   FAILED
 }
 
+enum FactDataLayer {
+  DERIVED_COMPATIBILITY
+}
+
+enum CanonicalSourceSystem {
+  BGC
+  IBLOOMING
+}
+
+enum CanonicalMemberRoleType {
+  AFFILIATE_LEVEL
+  CP_STATUS
+  EXECUTIVE_CP_STATUS
+  WEC_STATUS
+  CROSS_APP_STATUS
+}
+
+enum CanonicalOfferType {
+  BGC_AFFILIATE_JOIN
+  BGC_AFFILIATE_UPGRADE
+  BGC_PHYSICAL_PRODUCT
+  IB_CP_DIGITAL_PRODUCT
+  IB_GIM_PRODUCT
+  IB_IMATRIX_PRODUCT
+}
+
+enum CanonicalBusinessEventType {
+  AFFILIATE_JOINED
+  AFFILIATE_UPGRADED
+  PHYSICAL_PRODUCT_PURCHASED
+  CP_PRODUCT_SOLD
+  GIM_SIGNUP_COMPLETED
+  IMATRIX_PURCHASE_COMPLETED
+  REWARD_ACCRUED
+  POOL_FUNDED
+  POOL_DISTRIBUTED
+  QUALIFICATION_WINDOW_OPENED
+  QUALIFICATION_ACHIEVED
+  CASHOUT_REQUESTED
+  CASHOUT_APPROVED
+  CASHOUT_PAID
+}
+
+enum CanonicalValueUnit {
+  USD
+  PC
+  SP
+  COUNT
+  SHARE
+}
+
+enum CanonicalPcEntryType {
+  GRANT
+  SPEND
+  ADJUSTMENT
+}
+
+enum CanonicalSpEntryType {
+  ACCRUAL
+  DISTRIBUTION
+  ADJUSTMENT
+}
+
+enum CanonicalRewardSourceCode {
+  BGC_RR
+  BGC_GR
+  BGC_MIRACLE_CASH
+  BGC_GPSP
+  BGC_WEC_POOL
+  IB_LR
+  IB_MIRACLE_CASH
+  IB_CPR
+  IB_GRR
+  IB_IRR
+  IB_GPS
+  IB_GMP
+  IB_GEC
+}
+
+enum CanonicalDistributionCycle {
+  EVENT_BASED
+  MONTHLY
+  QUARTERLY
+  SEMIANNUAL
+  YEARLY
+  ADHOC
+}
+
+enum CanonicalRewardObligationStatus {
+  ACCRUED
+  ELIGIBLE
+  DISTRIBUTED
+  CANCELLED
+}
+
+enum CanonicalPoolCode {
+  BGC_GPSP_MONTHLY_POOL
+  BGC_WEC_QUARTERLY_POOL
+  IB_GPS_SEMIANNUAL_POOL
+  IB_WEC_USER_MONTHLY_POOL
+  IB_GMP_MONTHLY_POOL
+  IB_GEC_INTERNAL_POOL
+}
+
+enum CanonicalPoolEntryType {
+  FUNDING
+  DISTRIBUTION
+  ALLOCATION
+  ADJUSTMENT
+}
+
+enum CanonicalCashoutEventType {
+  REQUESTED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+enum CanonicalQualificationType {
+  WEC_60_DAY
+  CPR_YEAR_1
+  CPR_YEAR_2
+  EXECUTIVE_CP_APPOINTMENT
+  POOL_RECIPIENT_SNAPSHOT
+}
+
+enum CanonicalQualificationStatus {
+  OPEN
+  ELIGIBLE
+  ACHIEVED
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
 model User {
   id          String      @id @default(cuid())
   name        String
@@ -85,6 +220,7 @@ model DatasetSnapshot {
   id                String                    @id @default(cuid())
   name              String
   sourceSystems     Json
+  canonicalSourceSnapshotKey String?
   dateFrom          DateTime
   dateTo            DateTime
   fileUri           String
@@ -99,6 +235,19 @@ model DatasetSnapshot {
   validationIssues  SnapshotValidationIssue[]
   importRuns        SnapshotImportRun[]
   memberMonthFacts  SnapshotMemberMonthFact[]
+  canonicalMembers  CanonicalMember[]
+  canonicalMemberAliases CanonicalMemberAlias[]
+  canonicalRoleHistory CanonicalMemberRoleHistory[]
+  canonicalBusinessEvents CanonicalBusinessEvent[]
+  canonicalPcEntries CanonicalPcLedgerEntry[]
+  canonicalSpEntries CanonicalSpLedgerEntry[]
+  canonicalRewardObligations CanonicalRewardObligationEntry[]
+  canonicalPoolEntries CanonicalPoolLedgerEntry[]
+  canonicalCashoutEvents CanonicalCashoutEvent[]
+  canonicalQualificationWindows CanonicalQualificationWindow[]
+  canonicalQualificationStatusHistory CanonicalQualificationStatusHistory[]
+  rewardSourcePeriodFacts SnapshotRewardSourcePeriodFact[]
+  poolPeriodFacts   SnapshotPoolPeriodFact[]
   scenarios         Scenario[]
   runs              SimulationRun[]
 
@@ -135,6 +284,15 @@ model SnapshotImportRun {
   snapshot         DatasetSnapshot      @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
   issues           SnapshotImportIssue[]
   memberMonthFacts SnapshotMemberMonthFact[]
+  canonicalBusinessEvents CanonicalBusinessEvent[]
+  canonicalPcEntries CanonicalPcLedgerEntry[]
+  canonicalSpEntries CanonicalSpLedgerEntry[]
+  canonicalRewardObligations CanonicalRewardObligationEntry[]
+  canonicalPoolEntries CanonicalPoolLedgerEntry[]
+  canonicalCashoutEvents CanonicalCashoutEvent[]
+  canonicalQualificationWindows CanonicalQualificationWindow[]
+  rewardSourcePeriodFacts SnapshotRewardSourcePeriodFact[]
+  poolPeriodFacts   SnapshotPoolPeriodFact[]
 
   @@index([snapshotId, createdAt(sort: Desc)])
   @@index([status, createdAt(sort: Desc)])
@@ -157,6 +315,7 @@ model SnapshotMemberMonthFact {
   id              String            @id @default(cuid())
   snapshotId      String
   importRunId     String?
+  dataLayer       FactDataLayer     @default(DERIVED_COMPATIBILITY)
   periodKey       String
   memberKey       String
   sourceSystem    String
@@ -178,6 +337,325 @@ model SnapshotMemberMonthFact {
   @@index([snapshotId, periodKey])
   @@index([snapshotId, memberTier])
   @@index([snapshotId, groupKey])
+}
+
+model SnapshotRewardSourcePeriodFact {
+  id               String                  @id @default(cuid())
+  snapshotId       String
+  importRunId      String?
+  periodKey        String
+  sourceSystem     CanonicalSourceSystem
+  rewardSourceCode CanonicalRewardSourceCode
+  unit             CanonicalValueUnit
+  amount           Float
+  obligationCount  Int                     @default(0)
+  beneficiaryCount Int                     @default(0)
+  metadataJson     Json?
+  createdAt        DateTime                @default(now())
+  snapshot         DatasetSnapshot         @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun        SnapshotImportRun?      @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+
+  @@unique([snapshotId, periodKey, sourceSystem, rewardSourceCode, unit])
+  @@index([snapshotId, periodKey])
+  @@index([snapshotId, rewardSourceCode, periodKey])
+}
+
+model SnapshotPoolPeriodFact {
+  id                String                   @id @default(cuid())
+  snapshotId        String
+  importRunId       String?
+  periodKey         String
+  poolCode          CanonicalPoolCode
+  distributionCycle CanonicalDistributionCycle
+  unit              CanonicalValueUnit
+  fundingAmount     Float                    @default(0)
+  distributionAmount Float                   @default(0)
+  recipientCount    Int                      @default(0)
+  shareCountTotal   Float                    @default(0)
+  metadataJson      Json?
+  createdAt         DateTime                 @default(now())
+  snapshot          DatasetSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun         SnapshotImportRun?       @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+
+  @@unique([snapshotId, periodKey, poolCode, distributionCycle, unit])
+  @@index([snapshotId, periodKey])
+  @@index([snapshotId, poolCode, periodKey])
+}
+
+model CanonicalMember {
+  id                        String                             @id @default(cuid())
+  snapshotId                String
+  stableKey                 String
+  displayName               String?
+  metadataJson              Json?
+  createdAt                 DateTime                           @default(now())
+  updatedAt                 DateTime                           @updatedAt
+  snapshot                  DatasetSnapshot                    @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  aliases                   CanonicalMemberAlias[]
+  roleHistory               CanonicalMemberRoleHistory[]
+  actorEvents               CanonicalBusinessEvent[]           @relation("CanonicalEventActor")
+  beneficiaryEvents         CanonicalBusinessEvent[]           @relation("CanonicalEventBeneficiary")
+  relatedEvents             CanonicalBusinessEvent[]           @relation("CanonicalEventRelated")
+  pcEntries                 CanonicalPcLedgerEntry[]
+  spEntries                 CanonicalSpLedgerEntry[]
+  rewardObligations         CanonicalRewardObligationEntry[]
+  poolEntries               CanonicalPoolLedgerEntry[]         @relation("CanonicalPoolRecipient")
+  cashoutEvents             CanonicalCashoutEvent[]
+  qualificationWindows      CanonicalQualificationWindow[]
+  qualificationStatusHistory CanonicalQualificationStatusHistory[]
+
+  @@unique([snapshotId, stableKey])
+  @@index([snapshotId, displayName])
+}
+
+model CanonicalMemberAlias {
+  id          String                @id @default(cuid())
+  snapshotId  String
+  memberId    String
+  sourceSystem CanonicalSourceSystem
+  aliasKey    String
+  aliasType   String
+  confidence  Float?
+  metadataJson Json?
+  createdAt   DateTime              @default(now())
+  snapshot    DatasetSnapshot       @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  member      CanonicalMember       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, sourceSystem, aliasKey])
+  @@index([memberId, sourceSystem])
+}
+
+model CanonicalMemberRoleHistory {
+  id           String                   @id @default(cuid())
+  snapshotId   String
+  memberId     String
+  roleType     CanonicalMemberRoleType
+  roleValue    String
+  sourceSystem CanonicalSourceSystem?
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  sourceEventId String?
+  metadataJson  Json?
+  createdAt     DateTime                 @default(now())
+  snapshot      DatasetSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  member        CanonicalMember          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent   CanonicalBusinessEvent?  @relation("CanonicalRoleSourceEvent", fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, roleType, effectiveFrom])
+  @@index([memberId, roleType, effectiveFrom])
+}
+
+model CanonicalOffer {
+  id                  String               @id @default(cuid())
+  offerCode           String               @unique
+  offerType           CanonicalOfferType
+  sourceSystem        CanonicalSourceSystem
+  label               String
+  priceFiatUsd        Float?
+  pcGrantRuleJson     Json?
+  ltsGenerationRuleJson Json?
+  rewardRuleReference String?
+  metadataJson        Json?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  events              CanonicalBusinessEvent[]
+
+  @@index([offerType, sourceSystem])
+}
+
+model CanonicalBusinessEvent {
+  id                 String                    @id @default(cuid())
+  snapshotId         String
+  importRunId        String?
+  eventRef           String?
+  eventType          CanonicalBusinessEventType
+  sourceSystem       CanonicalSourceSystem
+  occurredAt         DateTime
+  effectivePeriodKey String
+  actorMemberId      String?
+  beneficiaryMemberId String?
+  relatedMemberId    String?
+  offerId            String?
+  quantity           Float?
+  amount             Float?
+  unit               CanonicalValueUnit?
+  metadataJson       Json?
+  createdAt          DateTime                  @default(now())
+  snapshot           DatasetSnapshot           @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun          SnapshotImportRun?        @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  actorMember        CanonicalMember?          @relation("CanonicalEventActor", fields: [actorMemberId], references: [id], onDelete: SetNull)
+  beneficiaryMember  CanonicalMember?          @relation("CanonicalEventBeneficiary", fields: [beneficiaryMemberId], references: [id], onDelete: SetNull)
+  relatedMember      CanonicalMember?          @relation("CanonicalEventRelated", fields: [relatedMemberId], references: [id], onDelete: SetNull)
+  offer              CanonicalOffer?           @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  roleHistory        CanonicalMemberRoleHistory[] @relation("CanonicalRoleSourceEvent")
+  pcEntries          CanonicalPcLedgerEntry[]
+  spEntries          CanonicalSpLedgerEntry[]
+  rewardObligations  CanonicalRewardObligationEntry[]
+  poolEntries        CanonicalPoolLedgerEntry[]
+  cashoutEvents      CanonicalCashoutEvent[]
+  qualificationWindows CanonicalQualificationWindow[] @relation("CanonicalQualificationSourceEvent")
+  qualificationStatusHistory CanonicalQualificationStatusHistory[] @relation("CanonicalQualificationStatusSourceEvent")
+
+  @@unique([snapshotId, eventRef])
+  @@index([snapshotId, effectivePeriodKey])
+  @@index([snapshotId, eventType, occurredAt])
+  @@index([actorMemberId, occurredAt])
+}
+
+model CanonicalPcLedgerEntry {
+  id                 String                 @id @default(cuid())
+  snapshotId         String
+  importRunId        String?
+  memberId           String
+  sourceEventId      String?
+  entryType          CanonicalPcEntryType
+  effectivePeriodKey String
+  amountPc           Float
+  metadataJson       Json?
+  createdAt          DateTime               @default(now())
+  snapshot           DatasetSnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun          SnapshotImportRun?     @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  member             CanonicalMember        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent        CanonicalBusinessEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, effectivePeriodKey])
+  @@index([memberId, effectivePeriodKey])
+}
+
+model CanonicalSpLedgerEntry {
+  id                 String                 @id @default(cuid())
+  snapshotId         String
+  importRunId        String?
+  memberId           String
+  sourceEventId      String?
+  entryType          CanonicalSpEntryType
+  effectivePeriodKey String
+  amountSp           Float
+  metadataJson       Json?
+  createdAt          DateTime               @default(now())
+  snapshot           DatasetSnapshot        @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun          SnapshotImportRun?     @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  member             CanonicalMember        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent        CanonicalBusinessEvent? @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, effectivePeriodKey])
+  @@index([memberId, effectivePeriodKey])
+}
+
+model CanonicalRewardObligationEntry {
+  id                    String                          @id @default(cuid())
+  snapshotId            String
+  importRunId           String?
+  memberId              String
+  sourceEventId         String?
+  rewardSourceCode      CanonicalRewardSourceCode
+  distributionCycle     CanonicalDistributionCycle
+  obligationStatus      CanonicalRewardObligationStatus @default(ACCRUED)
+  effectivePeriodKey    String
+  amount                Float
+  unit                  CanonicalValueUnit
+  eligibilitySnapshotKey String?
+  metadataJson          Json?
+  createdAt             DateTime                        @default(now())
+  snapshot              DatasetSnapshot                 @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun             SnapshotImportRun?              @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  member                CanonicalMember                 @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent           CanonicalBusinessEvent?         @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, rewardSourceCode, effectivePeriodKey])
+  @@index([memberId, effectivePeriodKey])
+}
+
+model CanonicalPoolLedgerEntry {
+  id                    String                    @id @default(cuid())
+  snapshotId            String
+  importRunId           String?
+  sourceEventId         String?
+  recipientMemberId     String?
+  poolCode              CanonicalPoolCode
+  entryType             CanonicalPoolEntryType
+  distributionCycle     CanonicalDistributionCycle
+  effectivePeriodKey    String
+  amount                Float
+  unit                  CanonicalValueUnit
+  shareCount            Float?
+  eligibilitySnapshotKey String?
+  metadataJson          Json?
+  createdAt             DateTime                  @default(now())
+  snapshot              DatasetSnapshot           @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun             SnapshotImportRun?        @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  sourceEvent           CanonicalBusinessEvent?   @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+  recipientMember       CanonicalMember?          @relation("CanonicalPoolRecipient", fields: [recipientMemberId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, poolCode, effectivePeriodKey])
+  @@index([recipientMemberId, effectivePeriodKey])
+}
+
+model CanonicalCashoutEvent {
+  id                 String                   @id @default(cuid())
+  snapshotId         String
+  importRunId        String?
+  memberId           String
+  sourceEventId      String?
+  eventType          CanonicalCashoutEventType
+  occurredAt         DateTime
+  effectivePeriodKey String
+  amountUsd          Float
+  feeUsd             Float?
+  metadataJson       Json?
+  createdAt          DateTime                 @default(now())
+  snapshot           DatasetSnapshot          @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun          SnapshotImportRun?       @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  member             CanonicalMember          @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent        CanonicalBusinessEvent?  @relation(fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, effectivePeriodKey])
+  @@index([memberId, occurredAt])
+}
+
+model CanonicalQualificationWindow {
+  id                 String                    @id @default(cuid())
+  snapshotId         String
+  importRunId        String?
+  memberId           String
+  qualificationType  CanonicalQualificationType
+  windowKey          String
+  startsAt           DateTime
+  endsAt             DateTime
+  thresholdAmount    Float?
+  thresholdUnit      CanonicalValueUnit?
+  sourceEventId      String?
+  metadataJson       Json?
+  createdAt          DateTime                  @default(now())
+  snapshot           DatasetSnapshot           @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  importRun          SnapshotImportRun?        @relation(fields: [importRunId], references: [id], onDelete: SetNull)
+  member             CanonicalMember           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceEvent        CanonicalBusinessEvent?   @relation("CanonicalQualificationSourceEvent", fields: [sourceEventId], references: [id], onDelete: SetNull)
+  qualificationStatuses CanonicalQualificationStatusHistory[]
+
+  @@unique([snapshotId, memberId, qualificationType, windowKey])
+  @@index([snapshotId, qualificationType, startsAt])
+}
+
+model CanonicalQualificationStatusHistory {
+  id                String                      @id @default(cuid())
+  snapshotId        String
+  memberId          String
+  qualificationType CanonicalQualificationType
+  status            CanonicalQualificationStatus
+  effectiveFrom     DateTime
+  effectiveTo       DateTime?
+  sourceWindowId    String?
+  sourceEventId     String?
+  metadataJson      Json?
+  createdAt         DateTime                    @default(now())
+  snapshot          DatasetSnapshot             @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  member            CanonicalMember             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  sourceWindow      CanonicalQualificationWindow? @relation(fields: [sourceWindowId], references: [id], onDelete: SetNull)
+  sourceEvent       CanonicalBusinessEvent?     @relation("CanonicalQualificationStatusSourceEvent", fields: [sourceEventId], references: [id], onDelete: SetNull)
+
+  @@index([snapshotId, qualificationType, effectiveFrom])
+  @@index([memberId, qualificationType, effectiveFrom])
 }
 
 model BaselineModelVersion {

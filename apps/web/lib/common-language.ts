@@ -8,16 +8,23 @@ import {
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2
 });
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  style: "currency"
+});
 const yearFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1
 });
 
 const summaryMetricKeys = new Set(summaryMetricDefinitions.map((definition) => definition.key));
+const fiatMetricKeys = new Set<string>();
 
 const segmentTypeLabels: Record<string, string> = {
   alpha_behavior: "ALPHA Behavior",
-  member_tier: "Member Tier",
-  milestone: "Milestone",
+  member_tier: "ALPHA Issued by Member Tier",
+  milestone: "Scenario Phase Totals",
   source_system: "Source System"
 };
 
@@ -35,10 +42,10 @@ const metricLabels: Record<string, string> = {
   alpha_spent_total: "ALPHA Spent",
   alpha_total: "ALPHA Total",
   payout_inflow_ratio: "Payout / Inflow",
-  reward_share_pct: "Reward Share",
+  reward_share_pct: "Issued Share",
   reserve_runway_months: "Reserve Runway",
   sink_utilization_rate: "Sink Utilization",
-  usd_equivalent_total: "Cash-Out Equivalent"
+  usd_equivalent_total: "ALPHA Cash-Out"
 };
 
 const policyStatusLabels: Record<string, string> = {
@@ -108,6 +115,10 @@ export function formatCommonMetricValue(metricKey: string, metricValue: number) 
   }
 
   const formatted = numberFormatter.format(metricValue);
+
+  if (fiatMetricKeys.has(metricKey) || metricKey.endsWith("_usd")) {
+    return currencyFormatter.format(metricValue);
+  }
 
   if (metricKey.endsWith("_pct")) {
     return `${formatted}%`;

@@ -1,6 +1,7 @@
 import { listBaselineModelVersions, listScenarios, listSnapshots } from "@bgc-alpha/db";
 import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
-import { scenarioParametersSchema } from "@bgc-alpha/schemas";
+import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
+import { parseFounderSafeScenarioParameters } from "@bgc-alpha/schemas";
 import { PageHeader } from "@bgc-alpha/ui";
 
 import { ScenarioConsole } from "@/components/scenario-console";
@@ -42,7 +43,17 @@ export default async function ScenariosPage() {
         baselineModels={baselineModels.map((model) => ({
           id: model.id,
           versionName: model.versionName,
-          status: model.status
+          status: model.status,
+          guardrailDefaults: {
+            reward_global_factor: resolveBaselineModelRuleset(
+              model.rulesetJson,
+              model.versionName
+            ).defaults.reward_global_factor,
+            reward_pool_factor: resolveBaselineModelRuleset(
+              model.rulesetJson,
+              model.versionName
+            ).defaults.reward_pool_factor
+          }
         }))}
         scenarios={scenarios.map((scenario) => ({
           ...scenario,
@@ -53,7 +64,16 @@ export default async function ScenariosPage() {
                 status: scenario.runs[0].status
               }
             : null,
-          parameterJson: scenarioParametersSchema.parse(scenario.parameterJson),
+          parameterJson: parseFounderSafeScenarioParameters(scenario.parameterJson, {
+            reward_global_factor: resolveBaselineModelRuleset(
+              scenario.modelVersion.rulesetJson,
+              scenario.modelVersion.versionName
+            ).defaults.reward_global_factor,
+            reward_pool_factor: resolveBaselineModelRuleset(
+              scenario.modelVersion.rulesetJson,
+              scenario.modelVersion.versionName
+            ).defaults.reward_pool_factor
+          }),
           snapshotDefault: scenario.snapshotDefault
             ? {
                 id: scenario.snapshotDefault.id,

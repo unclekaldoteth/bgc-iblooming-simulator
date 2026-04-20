@@ -33,6 +33,29 @@ export type SnapshotMemberMonthFactInput = {
   metadataJson?: Prisma.InputJsonValue | null;
 };
 
+export type SnapshotRewardSourcePeriodFactInput = {
+  periodKey: string;
+  sourceSystem: "BGC" | "IBLOOMING";
+  rewardSourceCode: string;
+  unit: "USD" | "PC" | "SP" | "COUNT" | "SHARE";
+  amount: number;
+  obligationCount: number;
+  beneficiaryCount: number;
+  metadataJson?: Prisma.InputJsonValue | null;
+};
+
+export type SnapshotPoolPeriodFactInput = {
+  periodKey: string;
+  poolCode: string;
+  distributionCycle: string;
+  unit: "USD" | "PC" | "SP" | "COUNT" | "SHARE";
+  fundingAmount: number;
+  distributionAmount: number;
+  recipientCount: number;
+  shareCountTotal: number;
+  metadataJson?: Prisma.InputJsonValue | null;
+};
+
 export type SnapshotMemberMonthFactRecord = Awaited<
   ReturnType<typeof listSnapshotMemberMonthFacts>
 >[number];
@@ -193,6 +216,24 @@ export async function listSnapshotMemberMonthFacts(snapshotId: string) {
   });
 }
 
+export async function listSnapshotRewardSourcePeriodFacts(snapshotId: string) {
+  return prisma.snapshotRewardSourcePeriodFact.findMany({
+    where: {
+      snapshotId
+    },
+    orderBy: [{ periodKey: "asc" }, { sourceSystem: "asc" }, { rewardSourceCode: "asc" }]
+  });
+}
+
+export async function listSnapshotPoolPeriodFacts(snapshotId: string) {
+  return prisma.snapshotPoolPeriodFact.findMany({
+    where: {
+      snapshotId
+    },
+    orderBy: [{ periodKey: "asc" }, { poolCode: "asc" }, { distributionCycle: "asc" }]
+  });
+}
+
 export async function markSnapshotImportRunning(importRunId: string) {
   return prisma.snapshotImportRun.update({
     where: {
@@ -216,6 +257,9 @@ export async function replaceSnapshotFactsAndCompleteImport(
     rowCountImported: number;
     notes?: string | null;
     issues?: SnapshotImportIssueInput[];
+    rewardSourcePeriodFacts?: SnapshotRewardSourcePeriodFactInput[];
+    poolPeriodFacts?: SnapshotPoolPeriodFactInput[];
+    canonicalSourceSnapshotKey?: string | null;
   }
 ) {
   return prisma.$transaction(async (tx) => {
@@ -238,6 +282,18 @@ export async function replaceSnapshotFactsAndCompleteImport(
     }
 
     await tx.snapshotMemberMonthFact.deleteMany({
+      where: {
+        snapshotId
+      }
+    });
+
+    await tx.snapshotRewardSourcePeriodFact.deleteMany({
+      where: {
+        snapshotId
+      }
+    });
+
+    await tx.snapshotPoolPeriodFact.deleteMany({
       where: {
         snapshotId
       }
@@ -276,6 +332,51 @@ export async function replaceSnapshotFactsAndCompleteImport(
       });
     }
 
+    if (input.rewardSourcePeriodFacts && input.rewardSourcePeriodFacts.length > 0) {
+      await tx.snapshotRewardSourcePeriodFact.createMany({
+        data: input.rewardSourcePeriodFacts.map((fact) => ({
+          snapshotId,
+          importRunId,
+          periodKey: fact.periodKey,
+          sourceSystem: fact.sourceSystem,
+          rewardSourceCode: fact.rewardSourceCode as never,
+          unit: fact.unit,
+          amount: fact.amount,
+          obligationCount: fact.obligationCount,
+          beneficiaryCount: fact.beneficiaryCount,
+          metadataJson:
+            typeof fact.metadataJson === "undefined"
+              ? undefined
+              : fact.metadataJson === null
+                ? Prisma.JsonNull
+                : fact.metadataJson
+        }))
+      });
+    }
+
+    if (input.poolPeriodFacts && input.poolPeriodFacts.length > 0) {
+      await tx.snapshotPoolPeriodFact.createMany({
+        data: input.poolPeriodFacts.map((fact) => ({
+          snapshotId,
+          importRunId,
+          periodKey: fact.periodKey,
+          poolCode: fact.poolCode as never,
+          distributionCycle: fact.distributionCycle as never,
+          unit: fact.unit,
+          fundingAmount: fact.fundingAmount,
+          distributionAmount: fact.distributionAmount,
+          recipientCount: fact.recipientCount,
+          shareCountTotal: fact.shareCountTotal,
+          metadataJson:
+            typeof fact.metadataJson === "undefined"
+              ? undefined
+              : fact.metadataJson === null
+                ? Prisma.JsonNull
+                : fact.metadataJson
+        }))
+      });
+    }
+
     await tx.datasetSnapshot.update({
       where: {
         id: snapshotId
@@ -283,7 +384,8 @@ export async function replaceSnapshotFactsAndCompleteImport(
       data: {
         validationStatus: SnapshotStatus.DRAFT,
         approvedAt: null,
-        approvedByUserId: null
+        approvedByUserId: null,
+        canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null
       }
     });
 
