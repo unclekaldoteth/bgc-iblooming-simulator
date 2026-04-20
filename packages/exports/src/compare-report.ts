@@ -52,9 +52,7 @@ export type CompareReportExport = {
   generatedAt: string;
   runs: CompareReportExportRun[];
   radar: CompareReportExportRadar;
-  keyResults: CompareReportExportTable;
-  goalComparison: CompareReportExportTable;
-  milestoneComparison: CompareReportExportTable;
+  comparisonTables: CompareReportExportTable[];
 };
 
 export function renderCompareReportPdf(report: CompareReportExport) {

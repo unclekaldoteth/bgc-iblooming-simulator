@@ -52,6 +52,11 @@ export type StrategicWorkingRow = {
   activeMember: boolean;
   recognizedRevenueUsd?: number | null;
   grossMarginUsd?: number | null;
+  retainedRevenueUsd?: number | null;
+  globalRewardUsd?: number | null;
+  poolRewardUsd?: number | null;
+  partnerPayoutOutUsd?: number | null;
+  productFulfillmentOutUsd?: number | null;
   memberJoinPeriod?: string | null;
   isAffiliate?: boolean | null;
   crossAppActive?: boolean | null;
@@ -69,6 +74,35 @@ type StrategicEvaluation = {
   strategic_metrics: Record<string, number>;
   strategic_objectives: StrategicObjectiveScorecard[];
 };
+
+type CashflowGateStatus = "healthy" | "review" | "reject";
+
+type CashflowContext = {
+  grossCashIn: number;
+  retainedRevenue: number;
+  partnerPayoutOut: number;
+  directRewardObligation: number;
+  poolFundingObligation: number;
+  actualPayoutOut: number;
+  productFulfillmentOut: number;
+  netTreasuryDelta: number;
+  rewardObligations: number;
+  actualOutflows: number;
+  totalFinancialPressure: number;
+  actualOutflowBurdenPct: number;
+  obligationBurdenPct: number;
+  financialPressureRatio: number;
+  obligationCoveragePct: number;
+  netTreasuryMarginPct: number;
+  payoutInflowRatio: number;
+  reserveRunwayMonths: number;
+  hasCashflowData: boolean;
+  gateStatus: CashflowGateStatus;
+  gateReason: string | null;
+};
+
+const NET_TREASURY_MARGIN_TARGET_PCT = 15;
+const NET_DELTA_PER_ACTIVE_USER_TARGET_USD = 10;
 
 function roundMetric(value: number) {
   return Number(value.toFixed(2));
@@ -119,6 +153,135 @@ function buildMetric(
   };
 }
 
+function getRowRetainedRevenue(row: StrategicWorkingRow) {
+  return Math.max(row.retainedRevenueUsd ?? row.recognizedRevenueUsd ?? 0, 0);
+}
+
+function getRowRewardObligation(row: StrategicWorkingRow) {
+  return Math.max(row.globalRewardUsd ?? 0, 0) + Math.max(row.poolRewardUsd ?? 0, 0);
+}
+
+function getRowFinancialBurden(row: StrategicWorkingRow) {
+  return (
+    getRowRewardObligation(row) +
+    Math.max(row.cashout, 0) +
+    Math.max(row.partnerPayoutOutUsd ?? 0, 0) +
+    Math.max(row.productFulfillmentOutUsd ?? 0, 0)
+  );
+}
+
+function buildCashflowContext(summary: SummaryMetrics): CashflowContext {
+  const grossCashIn = Math.max(summary.company_gross_cash_in_total, 0);
+  const retainedRevenue = Math.max(summary.company_retained_revenue_total, 0);
+  const partnerPayoutOut = Math.max(summary.company_partner_payout_out_total, 0);
+  const directRewardObligation = Math.max(summary.company_direct_reward_obligation_total, 0);
+  const poolFundingObligation = Math.max(summary.company_pool_funding_obligation_total, 0);
+  const actualPayoutOut = Math.max(summary.company_actual_payout_out_total, 0);
+  const productFulfillmentOut = Math.max(summary.company_product_fulfillment_out_total, 0);
+  const netTreasuryDelta = summary.company_net_treasury_delta_total;
+  const rewardObligations = directRewardObligation + poolFundingObligation;
+  const actualOutflows = partnerPayoutOut + actualPayoutOut + productFulfillmentOut;
+  const totalFinancialPressure = rewardObligations + actualOutflows;
+  const actualOutflowBurdenPct = safeDivide(actualOutflows, retainedRevenue) * 100;
+  const obligationBurdenPct = safeDivide(rewardObligations, retainedRevenue) * 100;
+  const financialPressureRatio = safeDivide(totalFinancialPressure, retainedRevenue);
+  const obligationCoveragePct = safeDivide(retainedRevenue, Math.max(rewardObligations, 1)) * 100;
+  const netTreasuryMarginPct = safeDivide(netTreasuryDelta, retainedRevenue) * 100;
+  const payoutInflowRatio = summary.payout_inflow_ratio;
+  const reserveRunwayMonths = summary.reserve_runway_months;
+  const hasCashflowData =
+    grossCashIn > 0 ||
+    retainedRevenue > 0 ||
+    partnerPayoutOut > 0 ||
+    rewardObligations > 0 ||
+    actualPayoutOut > 0 ||
+    productFulfillmentOut > 0;
+  let gateStatus: CashflowGateStatus = "healthy";
+  let gateReason: string | null = null;
+
+  if (!hasCashflowData) {
+    gateStatus = "review";
+    gateReason = "cashflow fields are incomplete, so strategic claims cannot be marked Ready.";
+  } else if (retainedRevenue <= 0 && totalFinancialPressure > 0) {
+    gateStatus = "reject";
+    gateReason = "retained revenue is unavailable while obligations or outflows exist.";
+  } else if (payoutInflowRatio >= 1.15) {
+    gateStatus = "reject";
+    gateReason = "treasury pressure is above the critical threshold.";
+  } else if (reserveRunwayMonths < 3) {
+    gateStatus = "reject";
+    gateReason = "reserve runway is below 3 months.";
+  } else if (financialPressureRatio > 1.25) {
+    gateStatus = "reject";
+    gateReason = "obligations and outflows materially exceed retained revenue capacity.";
+  } else if (retainedRevenue <= 0) {
+    gateStatus = "review";
+    gateReason = "gross cash exists but retained revenue is not available for strategic claims.";
+  } else if (netTreasuryDelta < 0) {
+    gateStatus = "review";
+    gateReason = "net treasury delta is negative.";
+  } else if (payoutInflowRatio >= 1) {
+    gateStatus = "review";
+    gateReason = "modeled obligations are at or above retained revenue support.";
+  } else if (reserveRunwayMonths < 6) {
+    gateStatus = "review";
+    gateReason = "reserve runway is below 6 months.";
+  } else if (financialPressureRatio > 1) {
+    gateStatus = "review";
+    gateReason = "combined obligations and cash outflows exceed retained revenue.";
+  }
+
+  return {
+    grossCashIn,
+    retainedRevenue,
+    partnerPayoutOut,
+    directRewardObligation,
+    poolFundingObligation,
+    actualPayoutOut,
+    productFulfillmentOut,
+    netTreasuryDelta,
+    rewardObligations,
+    actualOutflows,
+    totalFinancialPressure,
+    actualOutflowBurdenPct,
+    obligationBurdenPct,
+    financialPressureRatio,
+    obligationCoveragePct,
+    netTreasuryMarginPct,
+    payoutInflowRatio,
+    reserveRunwayMonths,
+    hasCashflowData,
+    gateStatus,
+    gateReason
+  };
+}
+
+function applyCashflowGate(
+  score: number,
+  reasons: string[],
+  cashflow: CashflowContext,
+  thresholds: StrategicAssumptions["score_thresholds"]
+) {
+  if (cashflow.gateStatus === "healthy") {
+    return {
+      score,
+      reasons
+    };
+  }
+
+  const scoreCap =
+    cashflow.gateStatus === "reject"
+      ? Math.max(thresholds.risky - 0.01, 0)
+      : Math.max(thresholds.candidate - 0.01, 0);
+  const gatedScore = Math.min(score, scoreCap);
+  const gateReason = `Cashflow gate: ${cashflow.gateReason}`;
+
+  return {
+    score: gatedScore,
+    reasons: [gateReason, ...reasons]
+  };
+}
+
 function buildScorecard(
   objectiveKey: StrategicObjectiveKey,
   label: string,
@@ -126,16 +289,20 @@ function buildScorecard(
   evidenceLevel: StrategicObjectiveEvidenceLevel,
   primaryMetrics: StrategicMetric[],
   reasons: string[],
-  thresholds: StrategicAssumptions["score_thresholds"]
+  thresholds: StrategicAssumptions["score_thresholds"],
+  cashflow: CashflowContext
 ): StrategicObjectiveScorecard {
+  const gated = applyCashflowGate(score, reasons, cashflow, thresholds);
+  const finalScore = roundMetric(clamp(gated.score, 0, 100));
+
   return {
     objective_key: objectiveKey,
     label,
-    score: roundMetric(clamp(score, 0, 100)),
-    status: statusFromScore(score, thresholds),
+    score: finalScore,
+    status: statusFromScore(finalScore, thresholds),
     evidence_level: evidenceLevel,
     primary_metrics: primaryMetrics,
-    reasons
+    reasons: gated.reasons
   };
 }
 
@@ -192,7 +359,8 @@ function evaluateRevenue(
   rows: StrategicWorkingRow[],
   summary: SummaryMetrics,
   assumptions: StrategicAssumptions,
-  history: ReturnType<typeof extractMemberPeriodHistory>
+  history: ReturnType<typeof extractMemberPeriodHistory>,
+  cashflow: CashflowContext
 ) {
   const activeMemberCount = new Set(
     rows.filter((row) => row.activeMember).map((row) => row.memberKey)
@@ -207,44 +375,66 @@ function evaluateRevenue(
     (total, row) => total + row.spent * assumptions.revenue.proxy_revenue_capture_rate,
     0
   );
-  const revenueTotal = directDataAvailable ? directRevenueTotal : proxyRevenueTotal;
+  const revenueTotal = cashflow.retainedRevenue > 0
+    ? cashflow.retainedRevenue
+    : directDataAvailable
+      ? directRevenueTotal
+      : proxyRevenueTotal;
   const grossMarginTotal = directMarginTotal > 0 ? directMarginTotal : revenueTotal * 0.35;
-  const revenuePerActiveMember = safeDivide(revenueTotal, activeMemberCount);
+  const retainedRevenuePerActiveMember = safeDivide(revenueTotal, activeMemberCount);
   const crossAppRevenueTotal = rows.reduce((total, row) => {
-    const revenueBasis = directDataAvailable
-      ? row.recognizedRevenueUsd ?? 0
+    const revenueBasis = getRowRetainedRevenue(row) > 0
+      ? getRowRetainedRevenue(row)
       : row.spent * assumptions.revenue.proxy_revenue_capture_rate;
 
     return history.crossAppMembers.has(row.memberKey) ? total + revenueBasis : total;
   }, 0);
   const crossAppRevenueShare = safeDivide(crossAppRevenueTotal, revenueTotal) * 100;
   const sinkToRevenueRatio = safeDivide(summary.alpha_spent_total, Math.max(revenueTotal, 1));
+  const netTreasuryMarginScore = scoreAgainstTarget(
+    Math.max(cashflow.netTreasuryMarginPct, 0),
+    NET_TREASURY_MARGIN_TARGET_PCT
+  );
+  const obligationCoverageScore = scoreAgainstTarget(cashflow.obligationCoveragePct, 100);
   const score =
     scoreAgainstTarget(
-      revenuePerActiveMember,
+      retainedRevenuePerActiveMember,
       assumptions.revenue.target_revenue_per_active_member
-    ) * 0.5 +
-    scoreAgainstTarget(crossAppRevenueShare, assumptions.revenue.target_cross_app_share_pct) * 0.25 +
-    clamp(summary.sink_utilization_rate, 0, 100) * 0.25;
-  const evidenceLevel: StrategicObjectiveEvidenceLevel = directDataAvailable ? "direct" : "proxy";
+    ) * 0.35 +
+    scoreAgainstTarget(crossAppRevenueShare, assumptions.revenue.target_cross_app_share_pct) * 0.2 +
+    netTreasuryMarginScore * 0.25 +
+    obligationCoverageScore * 0.2;
+  const evidenceLevel: StrategicObjectiveEvidenceLevel =
+    directDataAvailable && cashflow.hasCashflowData && cashflow.retainedRevenue > 0
+      ? "direct"
+      : "proxy";
   const reasons = [
-    directDataAvailable
-      ? "Uses imported recognized revenue or margin fields as direct evidence."
-      : "Uses spend-to-revenue proxy logic because direct revenue fields are missing.",
-    revenuePerActiveMember >= assumptions.revenue.target_revenue_per_active_member
-      ? "Revenue per active member is at or above the current target."
-      : "Revenue per active member is still below the current target.",
+    evidenceLevel === "direct"
+      ? "Uses retained revenue, recognized revenue, and net treasury delta from the cashflow lens."
+      : "Uses proxy revenue logic because cashflow revenue evidence is incomplete.",
+    retainedRevenuePerActiveMember >= assumptions.revenue.target_revenue_per_active_member
+      ? "Retained revenue per active member is at or above the current target."
+      : "Retained revenue per active member is still below the current target.",
+    cashflow.netTreasuryDelta >= 0
+      ? "Net treasury delta supports the revenue growth claim."
+      : "Net treasury delta does not yet support a defensible revenue growth claim.",
     crossAppRevenueShare >= assumptions.revenue.target_cross_app_share_pct
       ? "Cross-app revenue participation is broad enough to support ecosystem growth."
       : "Cross-app revenue share is still too narrow to prove ecosystem-level lift."
   ];
   const primaryMetrics = [
-    buildMetric("strategic.revenue.revenue_recognized_total", "Revenue recognized", revenueTotal, "value"),
+    buildMetric("strategic.revenue.retained_revenue_total", "Retained revenue", revenueTotal, "usd"),
     buildMetric(
-      "strategic.revenue.revenue_per_active_member",
-      "Revenue per active member",
-      revenuePerActiveMember,
-      "value"
+      "strategic.revenue.retained_revenue_per_active_member",
+      "Retained revenue per active member",
+      retainedRevenuePerActiveMember,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.revenue.net_treasury_delta",
+      "Net treasury delta",
+      cashflow.netTreasuryDelta,
+      "usd"
     ),
     buildMetric(
       "strategic.revenue.cross_app_revenue_share",
@@ -258,9 +448,11 @@ function evaluateRevenue(
     metrics: {
       "strategic.revenue.revenue_recognized_total": roundMetric(revenueTotal),
       "strategic.revenue.gross_margin_total": roundMetric(grossMarginTotal),
-      "strategic.revenue.revenue_per_active_member": roundMetric(revenuePerActiveMember),
+      "strategic.revenue.retained_revenue_per_active_member": roundMetric(retainedRevenuePerActiveMember),
       "strategic.revenue.cross_app_revenue_share": roundMetric(crossAppRevenueShare),
       "strategic.revenue.sink_to_revenue_ratio": roundMetric(sinkToRevenueRatio),
+      "strategic.revenue.net_treasury_margin_pct": roundMetric(cashflow.netTreasuryMarginPct),
+      "strategic.revenue.obligation_coverage_pct": roundMetric(cashflow.obligationCoveragePct),
       "strategic.revenue.revenue_growth_index": roundMetric(score),
       "strategic.revenue.score": roundMetric(score)
     },
@@ -271,7 +463,8 @@ function evaluateRevenue(
       evidenceLevel,
       primaryMetrics,
       reasons,
-      assumptions.score_thresholds
+      assumptions.score_thresholds,
+      cashflow
     )
   };
 }
@@ -279,7 +472,8 @@ function evaluateRevenue(
 function evaluateOpsCost(
   rows: StrategicWorkingRow[],
   summary: SummaryMetrics,
-  assumptions: StrategicAssumptions
+  assumptions: StrategicAssumptions,
+  cashflow: CashflowContext
 ) {
   const activeMemberCount = new Set(
     rows.filter((row) => row.activeMember).map((row) => row.memberKey)
@@ -287,52 +481,67 @@ function evaluateOpsCost(
   const manualOpsProxyTotal = rows.filter((row) => row.cashout > 0).length;
   const cashoutOpsLoadIndex = safeDivide(manualOpsProxyTotal, Math.max(activeMemberCount, 1)) * 100;
   const costPerActiveMemberProxy = safeDivide(manualOpsProxyTotal, Math.max(activeMemberCount, 1));
+  const outflowEfficiencyScore = clamp(100 - cashflow.actualOutflowBurdenPct, 0, 100);
+  const obligationEfficiencyScore = clamp(100 - cashflow.obligationBurdenPct, 0, 100);
+  const cashoutOpsLoadScore = clamp(
+    100 - cashoutOpsLoadIndex * assumptions.ops_cost.cashout_ops_penalty_weight,
+    0,
+    100
+  );
   const costToServeIndex = clamp(
-    assumptions.ops_cost.automation_coverage_score * 0.4 +
-      clamp(summary.sink_utilization_rate, 0, 100) * 0.35 +
-      clamp(
-        100 - cashoutOpsLoadIndex * assumptions.ops_cost.cashout_ops_penalty_weight,
-        0,
-        100
-      ) *
-        0.25,
+    assumptions.ops_cost.automation_coverage_score * 0.15 +
+      clamp(summary.sink_utilization_rate, 0, 100) * 0.15 +
+      outflowEfficiencyScore * 0.35 +
+      obligationEfficiencyScore * 0.25 +
+      cashoutOpsLoadScore * 0.1,
     0,
     100
   );
   const reasons = [
-    "Uses proxy metrics based on cash-out load, sink usage, and assumed automation coverage.",
+    "Uses cashflow outflow burden plus proxy cash-out ops load and automation coverage.",
     costToServeIndex >= assumptions.ops_cost.target_cost_to_serve_index
       ? "The modeled operating pattern is efficient enough for the current target."
       : "Cash-out handling and manual servicing pressure still look too heavy.",
-    summary.alpha_cashout_equivalent_total <= summary.alpha_spent_total
-      ? "Spend behavior is helping reduce service pressure versus pure cash extraction."
-      : "Cash-out behavior is still dominating spend and increasing service burden."
+    cashflow.actualOutflows <= cashflow.retainedRevenue
+      ? "Actual cash outflows remain within retained revenue support."
+      : "Actual cash outflows exceed retained revenue support.",
+    cashflow.rewardObligations <= cashflow.retainedRevenue
+      ? "Reward and pool obligations remain covered by retained revenue."
+      : "Reward and pool obligations exceed retained revenue support."
   ];
   const score = costToServeIndex;
   const primaryMetrics = [
     buildMetric(
-      "strategic.ops_cost.cost_to_serve_index",
-      "Cost-to-serve index",
-      costToServeIndex,
-      "score"
-    ),
-    buildMetric(
-      "strategic.ops_cost.cashout_ops_load_index",
-      "Cash-out ops load",
-      cashoutOpsLoadIndex,
+      "strategic.ops_cost.actual_outflow_burden_pct",
+      "Actual outflow burden",
+      cashflow.actualOutflowBurdenPct,
       "percent"
     ),
     buildMetric(
-      "strategic.ops_cost.automation_coverage_score",
-      "Automation coverage",
-      assumptions.ops_cost.automation_coverage_score,
-      "score"
+      "strategic.ops_cost.actual_payout_out",
+      "Actual payout out",
+      cashflow.actualPayoutOut,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.ops_cost.product_fulfillment_out",
+      "Product fulfillment out",
+      cashflow.productFulfillmentOut,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.ops_cost.net_treasury_delta",
+      "Net treasury delta",
+      cashflow.netTreasuryDelta,
+      "usd"
     )
   ];
 
   return {
     metrics: {
       "strategic.ops_cost.cost_to_serve_index": roundMetric(costToServeIndex),
+      "strategic.ops_cost.actual_outflow_burden_pct": roundMetric(cashflow.actualOutflowBurdenPct),
+      "strategic.ops_cost.obligation_burden_pct": roundMetric(cashflow.obligationBurdenPct),
       "strategic.ops_cost.cashout_ops_load_index": roundMetric(cashoutOpsLoadIndex),
       "strategic.ops_cost.manual_ops_proxy_total": roundMetric(manualOpsProxyTotal),
       "strategic.ops_cost.cost_per_active_member_proxy": roundMetric(costPerActiveMemberProxy),
@@ -348,16 +557,25 @@ function evaluateOpsCost(
       "proxy",
       primaryMetrics,
       reasons,
-      assumptions.score_thresholds
+      assumptions.score_thresholds,
+      cashflow
     )
   };
 }
 
-function evaluateTax(summary: SummaryMetrics, assumptions: StrategicAssumptions) {
+function evaluateTax(
+  assumptions: StrategicAssumptions,
+  cashflow: CashflowContext
+) {
   const taxEventReductionProxyPct = clamp(
-    100 - safeDivide(summary.alpha_cashout_equivalent_total, Math.max(summary.alpha_issued_total, 1)) * 100,
+    100 - safeDivide(cashflow.actualPayoutOut, Math.max(cashflow.grossCashIn, 1)) * 100,
     0,
     100
+  );
+  const payoutToRetainedRevenuePct = safeDivide(cashflow.actualPayoutOut, cashflow.retainedRevenue) * 100;
+  const netTreasuryMarginScore = scoreAgainstTarget(
+    Math.max(cashflow.netTreasuryMarginPct, 0),
+    NET_TREASURY_MARGIN_TARGET_PCT
   );
   const jurisdictionFitScore =
     (assumptions.tax.legal_readiness_score + assumptions.tax.compliance_structure_score) / 2;
@@ -366,18 +584,34 @@ function evaluateTax(summary: SummaryMetrics, assumptions: StrategicAssumptions)
       taxEventReductionProxyPct,
       assumptions.tax.target_tax_event_reduction_pct
     ) * 0.3 +
-    clamp(assumptions.tax.legal_readiness_score, 0, 100) * 0.35 +
-    clamp(assumptions.tax.compliance_structure_score, 0, 100) * 0.35;
+    clamp(assumptions.tax.legal_readiness_score, 0, 100) * 0.3 +
+    clamp(assumptions.tax.compliance_structure_score, 0, 100) * 0.3 +
+    netTreasuryMarginScore * 0.1;
   const reasons = [
-    "This is a checklist-based scorecard and not a direct tax simulation.",
+    "This is a checklist-based scorecard using actual payout out from the cashflow lens, not a direct tax simulation.",
     taxEventReductionProxyPct >= assumptions.tax.target_tax_event_reduction_pct
-      ? "Cash-out pressure is low enough to support a cleaner transaction structure."
-      : "Cash-out pressure still looks too high to claim meaningful tax-event reduction.",
+      ? "Actual payout out is low enough relative to gross cash in to support a cleaner transaction structure."
+      : "Actual payout out is still too high relative to gross cash in to claim meaningful tax-event reduction.",
     assumptions.tax.legal_readiness_score >= 50
       ? "Legal readiness assumptions are progressing toward an implementation path."
-      : "Legal readiness remains an explicit blocker for stronger tax claims."
+      : "Legal readiness remains an explicit blocker for stronger tax claims.",
+    cashflow.netTreasuryDelta >= 0
+      ? "Net treasury delta does not add an additional tax-structure warning."
+      : "Negative net treasury delta weakens tax-structure readiness."
   ];
   const primaryMetrics = [
+    buildMetric(
+      "strategic.tax.actual_payout_out",
+      "Actual payout out",
+      cashflow.actualPayoutOut,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.tax.gross_cash_in",
+      "Gross cash in",
+      cashflow.grossCashIn,
+      "usd"
+    ),
     buildMetric(
       "strategic.tax.tax_event_reduction_proxy_pct",
       "Tax-event reduction proxy",
@@ -401,6 +635,7 @@ function evaluateTax(summary: SummaryMetrics, assumptions: StrategicAssumptions)
   return {
     metrics: {
       "strategic.tax.tax_event_reduction_proxy_pct": roundMetric(taxEventReductionProxyPct),
+      "strategic.tax.actual_payout_to_retained_revenue_pct": roundMetric(payoutToRetainedRevenuePct),
       "strategic.tax.legal_readiness_score": roundMetric(assumptions.tax.legal_readiness_score),
       "strategic.tax.compliance_structure_score": roundMetric(
         assumptions.tax.compliance_structure_score
@@ -415,7 +650,8 @@ function evaluateTax(summary: SummaryMetrics, assumptions: StrategicAssumptions)
       "checklist",
       primaryMetrics,
       reasons,
-      assumptions.score_thresholds
+      assumptions.score_thresholds,
+      cashflow
     )
   };
 }
@@ -424,7 +660,8 @@ function evaluateAffiliate(
   rows: StrategicWorkingRow[],
   summary: SummaryMetrics,
   assumptions: StrategicAssumptions,
-  history: ReturnType<typeof extractMemberPeriodHistory>
+  history: ReturnType<typeof extractMemberPeriodHistory>,
+  cashflow: CashflowContext
 ) {
   const explicitAffiliateRows = rows.filter((row) => row.isAffiliate === true);
   const directAffiliateEvidence = explicitAffiliateRows.length > 0;
@@ -461,24 +698,56 @@ function evaluateAffiliate(
     (total, row) => total + (affiliateMembers.has(row.memberKey) ? row.issued : 0),
     0
   );
+  const affiliateRows = rows.filter((row) => affiliateMembers.has(row.memberKey));
+  const affiliateRetainedRevenue = affiliateRows.reduce(
+    (total, row) => total + getRowRetainedRevenue(row),
+    0
+  );
+  const affiliateRewardObligations = affiliateRows.reduce(
+    (total, row) => total + getRowRewardObligation(row),
+    0
+  );
+  const affiliateActualPayout = affiliateRows.reduce(
+    (total, row) => total + Math.max(row.cashout, 0),
+    0
+  );
+  const affiliateFinancialBurden = affiliateRewardObligations + affiliateActualPayout;
+  const affiliateNetContribution = affiliateRetainedRevenue - affiliateFinancialBurden;
+  const affiliateContributionMarginPct = safeDivide(
+    affiliateNetContribution,
+    affiliateRetainedRevenue
+  ) * 100;
+  const affiliateEconomicScore =
+    affiliateRetainedRevenue > 0
+      ? clamp(affiliateContributionMarginPct + 50, 0, 100)
+      : affiliateFinancialBurden > 0
+        ? 0
+        : 50;
   const activationRate = safeDivide(activeAffiliateMembers.size, affiliateMembers.size) * 100;
   const retentionRate = safeDivide(affiliateRetentionMembers.size, affiliateMembers.size) * 100;
   const productivityShare = safeDivide(affiliateIssuedTotal, Math.max(summary.alpha_issued_total, 1)) * 100;
   const score =
-    scoreAgainstTarget(activationRate, assumptions.affiliate.target_activation_rate_pct) * 0.4 +
-    scoreAgainstTarget(retentionRate, assumptions.affiliate.target_retention_rate_pct) * 0.35 +
-    scoreAgainstTarget(productivityShare, assumptions.affiliate.target_productivity_share_pct) * 0.25;
-  const evidenceLevel: StrategicObjectiveEvidenceLevel = directAffiliateEvidence ? "direct" : "proxy";
+    scoreAgainstTarget(activationRate, assumptions.affiliate.target_activation_rate_pct) * 0.25 +
+    scoreAgainstTarget(retentionRate, assumptions.affiliate.target_retention_rate_pct) * 0.25 +
+    scoreAgainstTarget(productivityShare, assumptions.affiliate.target_productivity_share_pct) * 0.15 +
+    affiliateEconomicScore * 0.35;
+  const evidenceLevel: StrategicObjectiveEvidenceLevel =
+    directAffiliateEvidence && cashflow.hasCashflowData && affiliateRetainedRevenue > 0
+      ? "direct"
+      : "proxy";
   const reasons = [
-    directAffiliateEvidence
-      ? "Uses imported affiliate flags as direct evidence."
-      : "Uses member-tier proxy logic because explicit affiliate fields are missing.",
+    evidenceLevel === "direct"
+      ? "Uses imported affiliate flags plus retained revenue and payout obligations from the cashflow lens."
+      : "Uses affiliate activity or member-tier proxy because affiliate cashflow contribution is incomplete.",
     activationRate >= assumptions.affiliate.target_activation_rate_pct
       ? "Affiliate activation is strong enough for the current target."
       : "Affiliate activation is still below the current target.",
     retentionRate >= assumptions.affiliate.target_retention_rate_pct
       ? "Affiliate retention is stable enough to support expansion."
-      : "Affiliate retention still looks fragile across periods."
+      : "Affiliate retention still looks fragile across periods.",
+    affiliateNetContribution >= 0
+      ? "Affiliate retained revenue covers affiliate reward and payout burden."
+      : "Affiliate reward and payout burden exceeds affiliate retained revenue."
   ];
   const primaryMetrics = [
     buildMetric(
@@ -488,16 +757,22 @@ function evaluateAffiliate(
       "count"
     ),
     buildMetric(
-      "strategic.affiliate.affiliate_activation_rate",
-      "Affiliate activation rate",
-      activationRate,
-      "percent"
+      "strategic.affiliate.retained_revenue",
+      "Affiliate retained revenue",
+      affiliateRetainedRevenue,
+      "usd"
     ),
     buildMetric(
-      "strategic.affiliate.affiliate_retention_rate",
-      "Affiliate retention rate",
-      retentionRate,
-      "percent"
+      "strategic.affiliate.financial_burden",
+      "Affiliate obligation + payout burden",
+      affiliateFinancialBurden,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.affiliate.net_contribution",
+      "Affiliate net contribution",
+      affiliateNetContribution,
+      "usd"
     )
   ];
 
@@ -508,6 +783,10 @@ function evaluateAffiliate(
       "strategic.affiliate.affiliate_activation_rate": roundMetric(activationRate),
       "strategic.affiliate.affiliate_retention_rate": roundMetric(retentionRate),
       "strategic.affiliate.affiliate_productivity_share": roundMetric(productivityShare),
+      "strategic.affiliate.retained_revenue": roundMetric(affiliateRetainedRevenue),
+      "strategic.affiliate.financial_burden": roundMetric(affiliateFinancialBurden),
+      "strategic.affiliate.net_contribution": roundMetric(affiliateNetContribution),
+      "strategic.affiliate.contribution_margin_pct": roundMetric(affiliateContributionMarginPct),
       "strategic.affiliate.affiliate_growth_index": roundMetric(score),
       "strategic.affiliate.score": roundMetric(score)
     },
@@ -518,7 +797,8 @@ function evaluateAffiliate(
       evidenceLevel,
       primaryMetrics,
       reasons,
-      assumptions.score_thresholds
+      assumptions.score_thresholds,
+      cashflow
     )
   };
 }
@@ -526,7 +806,8 @@ function evaluateAffiliate(
 function evaluateActiveUsers(
   rows: StrategicWorkingRow[],
   assumptions: StrategicAssumptions,
-  history: ReturnType<typeof extractMemberPeriodHistory>
+  history: ReturnType<typeof extractMemberPeriodHistory>,
+  cashflow: CashflowContext
 ) {
   const activeMembers = new Set(
     rows.filter((row) => row.activeMember).map((row) => row.memberKey)
@@ -561,23 +842,59 @@ function evaluateActiveUsers(
     [...activeMembers].filter((memberKey) => history.crossAppMembers.has(memberKey)).length,
     Math.max(activeMembers.size, 1)
   ) * 100;
+  const activeRows = rows.filter((row) => row.activeMember);
+  const activeRetainedRevenue = activeRows.reduce(
+    (total, row) => total + getRowRetainedRevenue(row),
+    0
+  );
+  const activeFinancialBurden = activeRows.reduce(
+    (total, row) => total + getRowFinancialBurden(row),
+    0
+  );
+  const activeNetContribution = activeRetainedRevenue - activeFinancialBurden;
+  const retainedRevenuePerActiveUser = safeDivide(activeRetainedRevenue, activeMembers.size);
+  const netDeltaPerActiveUser = safeDivide(cashflow.netTreasuryDelta, activeMembers.size);
+  const cashGeneratingActiveMembers = new Set(
+    activeRows
+      .filter((row) => getRowRetainedRevenue(row) > 0)
+      .map((row) => row.memberKey)
+  );
+  const cashGeneratingActiveUserShare = safeDivide(
+    cashGeneratingActiveMembers.size,
+    Math.max(activeMembers.size, 1)
+  ) * 100;
   const retainedShare = safeDivide(retainedMembers.size, Math.max(activeMembers.size, 1)) * 100;
   const newActiveShare = safeDivide(newActiveMembers.size, Math.max(activeMembers.size, 1)) * 100;
+  const netDeltaPerActiveUserScore = scoreAgainstTarget(
+    Math.max(netDeltaPerActiveUser, 0),
+    NET_DELTA_PER_ACTIVE_USER_TARGET_USD
+  );
   const score =
-    scoreAgainstTarget(retainedShare, assumptions.active_user.target_retention_rate_pct) * 0.5 +
-    scoreAgainstTarget(crossAppActiveShare, assumptions.active_user.target_cross_app_share_pct) * 0.3 +
-    clamp(newActiveShare * 2, 0, 100) * 0.2;
-  const evidenceLevel: StrategicObjectiveEvidenceLevel = directLifecycleEvidence ? "direct" : "proxy";
+    scoreAgainstTarget(retainedShare, assumptions.active_user.target_retention_rate_pct) * 0.25 +
+    scoreAgainstTarget(crossAppActiveShare, assumptions.active_user.target_cross_app_share_pct) * 0.2 +
+    clamp(cashGeneratingActiveUserShare, 0, 100) * 0.25 +
+    scoreAgainstTarget(
+      retainedRevenuePerActiveUser,
+      assumptions.revenue.target_revenue_per_active_member
+    ) * 0.2 +
+    netDeltaPerActiveUserScore * 0.1;
+  const evidenceLevel: StrategicObjectiveEvidenceLevel =
+    directLifecycleEvidence && cashflow.hasCashflowData && activeRetainedRevenue > 0
+      ? "direct"
+      : "proxy";
   const reasons = [
-    directLifecycleEvidence
-      ? "Uses imported lifecycle or cross-app activity fields as direct evidence."
-      : "Uses member-history proxy logic because direct lifecycle fields are missing.",
+    evidenceLevel === "direct"
+      ? "Uses imported lifecycle or cross-app activity fields plus retained revenue from the cashflow lens."
+      : "Uses member-history proxy logic because active-user cashflow contribution is incomplete.",
     retainedShare >= assumptions.active_user.target_retention_rate_pct
       ? "Active-user retention is strong enough for the current target."
       : "Active-user retention is still below the current target.",
     crossAppActiveShare >= assumptions.active_user.target_cross_app_share_pct
       ? "Cross-app activity is broad enough to support ecosystem stickiness."
-      : "Cross-app activity is still too narrow to prove durable ecosystem growth."
+      : "Cross-app activity is still too narrow to prove durable ecosystem growth.",
+    activeNetContribution >= 0
+      ? "Active-user retained revenue covers active-user financial burden."
+      : "Active-user financial burden exceeds active-user retained revenue."
   ];
   const primaryMetrics = [
     buildMetric(
@@ -587,16 +904,22 @@ function evaluateActiveUsers(
       "count"
     ),
     buildMetric(
-      "strategic.active_user.retained_active_user_count",
-      "Retained active users",
-      retainedMembers.size,
-      "count"
+      "strategic.active_user.cash_generating_active_user_share",
+      "Cash-generating active-user share",
+      cashGeneratingActiveUserShare,
+      "percent"
     ),
     buildMetric(
-      "strategic.active_user.cross_app_active_user_share",
-      "Cross-app active-user share",
-      crossAppActiveShare,
-      "percent"
+      "strategic.active_user.retained_revenue_per_active_user",
+      "Retained revenue per active user",
+      retainedRevenuePerActiveUser,
+      "usd"
+    ),
+    buildMetric(
+      "strategic.active_user.net_delta_per_active_user",
+      "Net treasury delta per active user",
+      netDeltaPerActiveUser,
+      "usd"
     )
   ];
 
@@ -607,6 +930,10 @@ function evaluateActiveUsers(
       "strategic.active_user.retained_active_user_count": roundMetric(retainedMembers.size),
       "strategic.active_user.reactivated_user_count": roundMetric(reactivatedMembers.size),
       "strategic.active_user.cross_app_active_user_share": roundMetric(crossAppActiveShare),
+      "strategic.active_user.cash_generating_active_user_share": roundMetric(cashGeneratingActiveUserShare),
+      "strategic.active_user.retained_revenue_per_active_user": roundMetric(retainedRevenuePerActiveUser),
+      "strategic.active_user.net_delta_per_active_user": roundMetric(netDeltaPerActiveUser),
+      "strategic.active_user.net_contribution": roundMetric(activeNetContribution),
       "strategic.active_user.active_user_growth_index": roundMetric(score),
       "strategic.active_user.score": roundMetric(score)
     },
@@ -617,7 +944,8 @@ function evaluateActiveUsers(
       evidenceLevel,
       primaryMetrics,
       reasons,
-      assumptions.score_thresholds
+      assumptions.score_thresholds,
+      cashflow
     )
   };
 }
@@ -629,14 +957,20 @@ export function evaluateStrategicObjectives(input: {
 }): StrategicEvaluation {
   const assumptions = input.baselineModel.strategicKpiAssumptions;
   const history = extractMemberPeriodHistory(input.rows);
-  const revenue = evaluateRevenue(input.rows, input.summary, assumptions, history);
-  const opsCost = evaluateOpsCost(input.rows, input.summary, assumptions);
-  const tax = evaluateTax(input.summary, assumptions);
-  const affiliate = evaluateAffiliate(input.rows, input.summary, assumptions, history);
-  const activeUser = evaluateActiveUsers(input.rows, assumptions, history);
+  const cashflow = buildCashflowContext(input.summary);
+  const revenue = evaluateRevenue(input.rows, input.summary, assumptions, history, cashflow);
+  const opsCost = evaluateOpsCost(input.rows, input.summary, assumptions, cashflow);
+  const tax = evaluateTax(assumptions, cashflow);
+  const affiliate = evaluateAffiliate(input.rows, input.summary, assumptions, history, cashflow);
+  const activeUser = evaluateActiveUsers(input.rows, assumptions, history, cashflow);
 
   return {
     strategic_metrics: {
+      "strategic.cashflow.actual_outflow_burden_pct": roundMetric(cashflow.actualOutflowBurdenPct),
+      "strategic.cashflow.obligation_burden_pct": roundMetric(cashflow.obligationBurdenPct),
+      "strategic.cashflow.financial_pressure_ratio": roundMetric(cashflow.financialPressureRatio),
+      "strategic.cashflow.obligation_coverage_pct": roundMetric(cashflow.obligationCoveragePct),
+      "strategic.cashflow.net_treasury_margin_pct": roundMetric(cashflow.netTreasuryMarginPct),
       ...revenue.metrics,
       ...opsCost.metrics,
       ...tax.metrics,

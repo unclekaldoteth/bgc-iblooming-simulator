@@ -1,20 +1,19 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
 import { getRunById } from "@bgc-alpha/db";
 import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
-import { scenarioParametersSchema } from "@bgc-alpha/schemas";
+import { parseFounderSafeScenarioParameters } from "@bgc-alpha/schemas";
 import { Card, PageHeader } from "@bgc-alpha/ui";
 
 import { RunStatusRefresh } from "@/components/run-status-refresh";
+import { AlphaDistributionChart } from "@/components/summary-metrics-chart";
 import {
-  formatStrategicMetricValue,
   readMilestoneEvaluations,
   readDecisionPack,
   readStrategicObjectives,
-  strategicObjectiveLabels
 } from "@/lib/strategic-objectives";
-import { SummaryMetricsChart } from "@/components/summary-metrics-chart";
 import { requirePageUser } from "@/lib/auth-session";
 import {
   formatPlanningHorizonLabel,
@@ -27,6 +26,7 @@ import {
 import {
   formatSummaryMetricValue,
   summaryMetricDefinitions,
+  type SummaryMetricKey
 } from "@/lib/summary-metrics";
 
 function getVerdictStatus(policyStatus: string) {
@@ -36,19 +36,35 @@ function getVerdictStatus(policyStatus: string) {
   return "neutral";
 }
 
-function getRunStatusTone(status: string) {
-  if (status === "FAILED") return "rejected";
-  if (status === "QUEUED" || status === "RUNNING") return "info";
-  return "neutral";
-}
-
 function getGaugeStatus(key: string, value: number) {
   if (key === "payout_inflow_ratio") return value > 1.0 ? "danger" : value > 0.8 ? "warning" : "safe";
   if (key === "reserve_runway_months") return value < 6 ? "danger" : value < 12 ? "warning" : "safe";
   if (key === "sink_utilization_rate") return value < 20 ? "danger" : value < 30 ? "warning" : "safe";
   if (key === "reward_concentration_top10_pct") return value > 60 ? "danger" : value > 45 ? "warning" : "safe";
+  if (key === "company_net_treasury_delta_total") return value < 0 ? "danger" : "safe";
   return "safe";
 }
+
+const businessOutcomeMetricKeys = [
+  "company_gross_cash_in_total",
+  "company_retained_revenue_total",
+  "company_net_treasury_delta_total",
+  "company_actual_payout_out_total"
+] as const satisfies readonly SummaryMetricKey[];
+
+const alphaOutcomeMetricKeys = [
+  "alpha_issued_total",
+  "alpha_spent_total",
+  "alpha_held_total",
+  "alpha_cashout_equivalent_total"
+] as const satisfies readonly SummaryMetricKey[];
+
+const healthSignalMetricKeys = [
+  "payout_inflow_ratio",
+  "reserve_runway_months",
+  "sink_utilization_rate",
+  "reward_concentration_top10_pct"
+] as const satisfies readonly SummaryMetricKey[];
 
 export default async function RunDetailPage({
   params,
@@ -75,10 +91,17 @@ export default async function RunDetailPage({
   const run = await getRunById(runId);
   if (!run) notFound();
 
+  const baselineModel = resolveBaselineModelRuleset(
+    run.modelVersion.rulesetJson,
+    run.modelVersion.versionName
+  );
   const decisionPack = readDecisionPack(run.decisionPacks[0]?.recommendationJson);
   const strategicObjectives = readStrategicObjectives(run.decisionPacks[0]?.recommendationJson);
   const milestoneEvaluations = readMilestoneEvaluations(run.decisionPacks[0]?.recommendationJson);
-  const scenarioParameters = scenarioParametersSchema.parse(run.scenario.parameterJson);
+  const scenarioParameters = parseFounderSafeScenarioParameters(run.scenario.parameterJson, {
+    reward_global_factor: baselineModel.defaults.reward_global_factor,
+    reward_pool_factor: baselineModel.defaults.reward_pool_factor
+  });
   const failureMessage = run.status === "FAILED" ? run.runNotes?.trim() || "Run failed without a recorded error." : null;
   const activeRefresh = run.status === "QUEUED" || run.status === "RUNNING" || (run.status === "COMPLETED" && !decisionPack);
   const inlineResumeEnabled = Boolean(process.env.VERCEL) && user.capabilities.includes("runs.write");
@@ -91,7 +114,12 @@ export default async function RunDetailPage({
     return { ...def, id: metric?.id ?? def.key, value: metric?.metricValue ?? 0 };
   });
 
-  const signalMetrics = orderedSummaryMetrics.filter((m) => m.group === "signal");
+  const orderedSummaryMetricsByKey = new Map(orderedSummaryMetrics.map((metric) => [metric.key, metric] as const));
+  const getMetricRows = (keys: readonly SummaryMetricKey[]) =>
+    keys.map((key) => orderedSummaryMetricsByKey.get(key)).filter((metric): metric is (typeof orderedSummaryMetrics)[number] => Boolean(metric));
+  const businessOutcomeMetrics = getMetricRows(businessOutcomeMetricKeys);
+  const alphaOutcomeMetrics = getMetricRows(alphaOutcomeMetricKeys);
+  const healthSignalMetrics = getMetricRows(healthSignalMetricKeys);
 
   return (
     <>
@@ -99,7 +127,7 @@ export default async function RunDetailPage({
       <PageHeader
         eyebrow="Simulation Result"
         title={`Run Summary · ${getRunReference(runId)}`}
-        description="Policy verdict, treasury health, goal scorecards, and milestone checkpoints."
+        description="Executive result, business outcome, ALPHA outcome, treasury health, and audit metrics."
       />
 
       {/* Tab-like navigation */}
@@ -111,50 +139,85 @@ export default async function RunDetailPage({
       </nav>
 
       <section className="page-grid">
-        {/* Verdict Hero */}
-        <Card className="span-8" title="Policy Verdict">
-          <div className="verdict-hero">
-            <div>
+        {/* Executive Result */}
+        <Card className="span-12" title="Executive Result">
+          <div className="decision-summary">
+            <div className="decision-summary__verdict">
               <span className="verdict-label" data-status={verdictStatus}>
                 {getPolicyStatusLabel(policyStatusLabel)}
               </span>
-              <div className="verdict-details">
-                <p>Scenario: <strong>{run.scenario.name}</strong></p>
-                <p className="muted" style={{ fontSize: "0.82rem" }}>Data: {run.snapshot.name} · Rule set: {run.modelVersion.versionName}</p>
+              <p>
+                {failureMessage ?? decisionPack?.recommendation ?? "Simulation result is available. Decision pack recommendation is pending."}
+              </p>
+            </div>
+            <div className="decision-summary__meta">
+              <div>
+                <span>Scenario</span>
+                <strong>{run.scenario.name}</strong>
+              </div>
+              <div>
+                <span>Data</span>
+                <strong>{run.snapshot.name}</strong>
+              </div>
+              <div>
+                <span>Rule Set</span>
+                <strong>{run.modelVersion.versionName}</strong>
+              </div>
+              <div>
+                <span>Run Status</span>
+                <strong>{getRunStatusLabel(run.status)}</strong>
+              </div>
+              <div>
+                <span>Horizon</span>
+                <strong>{formatPlanningHorizonLabel(scenarioParameters.projection_horizon_months)}</strong>
+              </div>
+              <div>
+                <span>Scenario Growth</span>
+                <strong>
+                  {scenarioParameters.cohort_assumptions.new_members_per_month} new/mo · {scenarioParameters.cohort_assumptions.monthly_churn_rate_pct}% churn
+                </strong>
               </div>
             </div>
           </div>
-          {failureMessage ? <p className="error-text" style={{ padding: "0 1.5rem 1rem" }}>{failureMessage}</p> : null}
         </Card>
 
-        {/* Run Info */}
-        <Card className="span-4" title="Run Details">
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
-            <span className={`badge badge--${getRunStatusTone(run.status)}`}>
-              {getRunStatusLabel(run.status)}
-            </span>
-          </div>
-          <p className="muted" style={{ fontSize: "0.82rem" }}>
-            Horizon: {formatPlanningHorizonLabel(scenarioParameters.projection_horizon_months)}<br />
-            New members/mo: {scenarioParameters.cohort_assumptions.new_members_per_month}<br />
-            Churn: {scenarioParameters.cohort_assumptions.monthly_churn_rate_pct}%
+        {/* Business Outcome */}
+        <Card className="span-12" title="Business Outcome">
+          <p className="card-intro">
+            Company cashflow outcome from the simulation. Fiat and cashflow values are shown in $.
           </p>
-          {scenarioParameters.milestone_schedule.length > 0 ? (
-            <div style={{ marginTop: "0.5rem" }}>
-              <p className="muted" style={{ fontSize: "0.75rem", fontWeight: 600 }}>Milestones:</p>
-              {scenarioParameters.milestone_schedule.map((ms) => (
-                <p key={ms.milestone_key} className="muted" style={{ fontSize: "0.75rem", margin: "0.1rem 0" }}>
-                  <strong>{ms.label}</strong>: month {ms.start_month}{ms.end_month ? `–${ms.end_month}` : "+"}
-                </p>
+          <div className="decision-kpi-grid decision-kpi-grid--four">
+            {businessOutcomeMetrics.map((metric) => (
+              <div className="decision-kpi" data-status={getGaugeStatus(metric.key, metric.value)} key={metric.id}>
+                <span>{metric.shortLabel}</span>
+                <strong>{formatSummaryMetricValue(metric.key, metric.value)}</strong>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* ALPHA Outcome */}
+        <Card className="span-12" title="ALPHA Outcome">
+          <p className="card-intro">
+            Policy-token layer kept separate from company cashflow.
+          </p>
+          <div className="alpha-outcome-layout">
+            <AlphaDistributionChart metrics={orderedSummaryMetrics.map((m) => ({ key: m.key, value: m.value }))} />
+            <div className="decision-kpi-grid decision-kpi-grid--two alpha-outcome-kpis">
+              {alphaOutcomeMetrics.map((metric) => (
+                <div className="decision-kpi" key={metric.id}>
+                  <span>{metric.shortLabel}</span>
+                  <strong>{formatSummaryMetricValue(metric.key, metric.value)}</strong>
+                </div>
               ))}
             </div>
-          ) : null}
+          </div>
         </Card>
 
-        {/* Gauge Cards */}
-        <Card className="span-8" title="Health Signals">
+        {/* Health Signals */}
+        <Card className="span-8" title="Health & Risk Signals">
           <div className="gauge-grid">
-            {signalMetrics.map((metric) => (
+            {healthSignalMetrics.map((metric) => (
               <div className="gauge-card" data-status={getGaugeStatus(metric.key, metric.value)} key={metric.id}>
                 <p className="metric-label">{metric.shortLabel}</p>
                 <p className="metric">{formatSummaryMetricValue(metric.key, metric.value)}</p>
@@ -168,7 +231,7 @@ export default async function RunDetailPage({
         <Card className="span-4" title="Risk Flags">
           {failureMessage ? <p className="error-text">{failureMessage}</p> : null}
           {!failureMessage && run.flags.length === 0 ? (
-            <p className="muted" style={{ fontSize: "0.85rem" }}>✓ No risk warnings.</p>
+            <p className="muted" style={{ fontSize: "0.85rem" }}>No risk warnings.</p>
           ) : null}
           {!failureMessage && run.flags.length > 0 ? (
             <div className="flag-list">
@@ -185,9 +248,55 @@ export default async function RunDetailPage({
           ) : null}
         </Card>
 
-        {/* Summary Metrics Chart */}
-        <Card className="span-12" title="Summary Metrics">
-          <SummaryMetricsChart metrics={orderedSummaryMetrics.map((m) => ({ key: m.key, value: m.value }))} />
+        {/* Strategic Goals Snapshot */}
+        <Card className="span-12" title="Strategic Goals Snapshot">
+          {strategicObjectives.length === 0 ? (
+            <p className="muted">Goal scorecards will appear once the recommendation pack is ready.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Objective</th><th>Assessment</th><th>Evidence</th><th>Score</th></tr></thead>
+                <tbody>
+                  {strategicObjectives.map((obj) => (
+                    <tr key={obj.objective_key}>
+                      <td>{obj.label}</td>
+                      <td><span className={`badge badge--${obj.status === "candidate" ? "candidate" : obj.status === "risky" ? "risky" : "rejected"}`}>{getPolicyStatusLabel(obj.status)}</span></td>
+                      <td>{getEvidenceLevelLabel(obj.evidence_level)}</td>
+                      <td style={{ fontWeight: 600 }}>{obj.score.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {/* Milestone Snapshot */}
+        <Card className="span-12" title="Milestone Snapshot">
+          {milestoneEvaluations.length === 0 ? (
+            <p className="muted">Milestone results will appear once the recommendation pack is ready.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead><tr><th>Milestone</th><th>Assessment</th><th>Pressure</th><th>Net Treasury Delta</th><th>Runway</th></tr></thead>
+                <tbody>
+                  {milestoneEvaluations.map((ms) => (
+                    <tr key={ms.milestone_key}>
+                      <td><strong>{ms.label}</strong><div className="muted" style={{ fontSize: "0.75rem" }}>{ms.start_period_key} → {ms.end_period_key}</div></td>
+                      <td><span className={`badge badge--${ms.policy_status === "candidate" ? "candidate" : ms.policy_status === "risky" ? "risky" : "rejected"}`}>{getPolicyStatusLabel(ms.policy_status)}</span></td>
+                      <td style={{ fontWeight: 600 }}>{formatSummaryMetricValue("payout_inflow_ratio", ms.summary_metrics.payout_inflow_ratio)}</td>
+                      <td style={{ fontWeight: 600 }}>{formatSummaryMetricValue("company_net_treasury_delta_total", ms.summary_metrics.company_net_treasury_delta_total)}</td>
+                      <td>{formatSummaryMetricValue("reserve_runway_months", ms.summary_metrics.reserve_runway_months)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {/* Full Summary Metrics */}
+        <Card className="span-12" title="Full Summary Metrics">
           <table className="table">
             <thead><tr><th>Key Metric</th><th>Value</th></tr></thead>
             <tbody>
@@ -204,64 +313,6 @@ export default async function RunDetailPage({
               ))}
             </tbody>
           </table>
-        </Card>
-
-        {/* Strategic Goals */}
-        <Card className="span-12" title="Strategic Goals">
-          {strategicObjectives.length === 0 ? (
-            <p className="muted">Goal scorecards will appear once the recommendation pack is ready.</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead><tr><th>Objective</th><th>Assessment</th><th>Evidence</th><th>Score</th><th>Primary Metrics</th><th>Reasons</th></tr></thead>
-                <tbody>
-                  {strategicObjectives.map((obj) => (
-                    <tr key={obj.objective_key}>
-                      <td>{obj.label}</td>
-                      <td><span className={`badge badge--${obj.status === "candidate" ? "candidate" : obj.status === "risky" ? "risky" : "rejected"}`}>{getPolicyStatusLabel(obj.status)}</span></td>
-                      <td>{getEvidenceLevelLabel(obj.evidence_level)}</td>
-                      <td style={{ fontWeight: 600 }}>{obj.score.toFixed(2)}</td>
-                      <td><ul className="issue-list">{obj.primary_metrics.map((m) => <li key={`${obj.objective_key}-${m.metric_key}`}>{m.label}: {formatStrategicMetricValue(m.value, m.unit)}</li>)}</ul></td>
-                      <td><ul className="issue-list">{obj.reasons.map((r) => <li key={`${obj.objective_key}-${r}`}>{r}</li>)}</ul></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-
-        {/* Milestone Checkpoints */}
-        <Card className="span-12" title="Milestone Checkpoints">
-          {milestoneEvaluations.length === 0 ? (
-            <p className="muted">Milestone results will appear once the recommendation pack is ready.</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead><tr><th>Milestone</th><th>Assessment</th><th>Pressure</th><th>Runway</th><th>Top 10%</th><th>Goals</th><th>Reasons</th></tr></thead>
-                <tbody>
-                  {milestoneEvaluations.map((ms) => (
-                    <tr key={ms.milestone_key}>
-                      <td><strong>{ms.label}</strong><div className="muted" style={{ fontSize: "0.75rem" }}>{ms.start_period_key} → {ms.end_period_key}</div></td>
-                      <td><span className={`badge badge--${ms.policy_status === "candidate" ? "candidate" : ms.policy_status === "risky" ? "risky" : "rejected"}`}>{getPolicyStatusLabel(ms.policy_status)}</span></td>
-                      <td style={{ fontWeight: 600 }}>{ms.summary_metrics.payout_inflow_ratio.toFixed(2)}x</td>
-                      <td>{formatSummaryMetricValue("reserve_runway_months", ms.summary_metrics.reserve_runway_months)}</td>
-                      <td>{ms.summary_metrics.reward_concentration_top10_pct.toFixed(2)}%</td>
-                      <td>
-                        <div className="muted" style={{ fontSize: "0.75rem" }}>
-                          <span style={{ color: "var(--status-candidate)" }}>Strong: </span>{ms.strong_objectives.length > 0 ? ms.strong_objectives.map((k) => strategicObjectiveLabels[k as keyof typeof strategicObjectiveLabels] ?? k).join(", ") : "none"}
-                        </div>
-                        <div className="muted" style={{ fontSize: "0.75rem" }}>
-                          <span style={{ color: "var(--status-risky)" }}>Weak: </span>{ms.weak_objectives.length > 0 ? ms.weak_objectives.map((k) => strategicObjectiveLabels[k as keyof typeof strategicObjectiveLabels] ?? k).join(", ") : "none"}
-                        </div>
-                      </td>
-                      <td><ul className="issue-list">{ms.reasons.map((r) => <li key={`${ms.milestone_key}-${r}`}>{r}</li>)}</ul></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </Card>
 
       </section>

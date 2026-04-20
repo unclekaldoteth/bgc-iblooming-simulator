@@ -131,10 +131,14 @@ A `decision pack` is the founder-facing recommendation artifact generated after 
 It contains:
 
 - policy status
+- founder-facing verdict label such as `Ready`, `Needs Review`, or `Do Not Use`
 - recommendation summary
-- preferred settings
-- rejected settings
+- evaluated scenario basis
+- blockers or rejection reasons
+- strategic goals
+- milestone gates
 - unresolved questions
+- full simulation report export actions
 
 ## Main Screens
 
@@ -167,25 +171,64 @@ The `Runs` screen shows:
 
 ### Distribution
 
-The `Distribution` screen shows segment and behavior output from a completed run.
+The `Distribution` screen shows ALPHA behavior, issued-share concentration, scenario phase totals, and source-system splits from a completed run.
 
 ### Treasury
 
-The `Treasury` screen shows sustainability-related metrics such as payout pressure and reserve runway.
+The `Treasury` screen shows company cashflow truth first, then treasury health signals.
+
+It includes:
+
+- gross cash in
+- retained revenue
+- partner payout out
+- direct reward obligations
+- pool funding obligations
+- actual payout out
+- product fulfillment out
+- net treasury delta
+- treasury pressure
+- reserve runway
+- internal use rate
+- concentration risk
 
 ### Compare
 
-The `Compare` screen shows side-by-side metrics across completed runs.
+The `Compare` screen shows a selected set of completed runs side by side with a cashflow-first structure.
+
+It currently includes:
+
+- selected scenario bar and manage panel
+- radar quick-scan
+- compare decision snapshot
+- business cashflow comparison
+- ALPHA policy comparison
+- treasury risk comparison
+- distribution comparison
+- strategic-goal comparison
+- milestone comparison
+- run context and audit trail
 
 ### Decision Pack
 
 The `Decision Pack` screen shows the founder-facing recommendation generated from a completed run.
 
+It currently emphasizes:
+
+- policy verdict
+- scenario context
+- evaluated scenario basis
+- blockers or rejection reasons
+- unresolved questions
+- strategic-goal evidence
+- milestone gates
+- full simulation report export
+
 ## Roles
 
 ### Founder
 
-Can read high-level outputs and export decision packs, but cannot create scenarios or launch runs in the current role mapping.
+Can read high-level outputs and export founder-facing full simulation reports, but cannot create scenarios or launch runs in the current role mapping.
 
 ### Analyst
 
@@ -503,7 +546,13 @@ Triggered when rewards are too concentrated in the top cohort.
 
 ## Decision Pack Policy Status
 
-The current engine produces one of three recommendation states.
+The current engine produces one of three recommendation states internally.
+
+Founder-facing surfaces render them as:
+
+- `candidate` -> `Ready`
+- `risky` -> `Needs Review`
+- `rejected` -> `Do Not Use`
 
 ### `candidate`
 
@@ -548,9 +597,9 @@ Snapshot import validation currently checks:
 The simulator is now dataset-driven at `member-month` grain, but it still has important MVP limits:
 
 - no raw event replay
+- some exact understanding-doc rules still require canonical JSON rather than compatibility CSV
 - no direct production sync
 - no calibrated regression fixture suite yet
-- no richer optional CSV columns in active use
 - approval and metadata validation are still separate from import-run completion logic
 
 So the current simulator should be understood as:

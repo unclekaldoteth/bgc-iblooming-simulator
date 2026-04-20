@@ -1,193 +1,22 @@
 import { writeAuditEvent } from "./audit";
+import { replaceCanonicalSnapshotData } from "./canonical";
+import { buildDerivedSnapshotDataFromCanonical } from "./canonical-derived";
+import {
+  countCanonicalSnapshotRows,
+  parseCanonicalSnapshotText,
+  toReplaceCanonicalSnapshotDataInput
+} from "./canonical-payload";
+import {
+  parseCompatibilityCsvSnapshotText,
+  validateCompatibilitySnapshotFacts
+} from "./snapshot-import-compatibility";
 import {
   failSnapshotImportRun,
   getSnapshotImportRunById,
   markSnapshotImportRunning,
-  replaceSnapshotFactsAndCompleteImport,
-  type SnapshotImportIssueInput,
-  type SnapshotMemberMonthFactInput
+  replaceSnapshotFactsAndCompleteImport
 } from "./snapshots";
-import { readSnapshotCsvText } from "./snapshot-storage";
-
-import {
-  snapshotImportCsvHeaders,
-  snapshotImportCsvRowSchema,
-  snapshotMemberMonthFactSchema
-} from "@bgc-alpha/schemas";
-
-type CsvRecord = Record<string, string>;
-
-function normalizeHeader(value: string) {
-  return value.trim();
-}
-
-function parseCsvRecords(text: string): CsvRecord[] {
-  const rows: string[][] = [];
-  const source = text.replace(/^\uFEFF/, "");
-  let currentCell = "";
-  let currentRow: string[] = [];
-  let inQuotes = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index];
-    const nextChar = source[index + 1];
-
-    if (inQuotes) {
-      if (char === '"' && nextChar === '"') {
-        currentCell += '"';
-        index += 1;
-        continue;
-      }
-
-      if (char === '"') {
-        inQuotes = false;
-        continue;
-      }
-
-      currentCell += char;
-      continue;
-    }
-
-    if (char === '"') {
-      inQuotes = true;
-      continue;
-    }
-
-    if (char === ",") {
-      currentRow.push(currentCell);
-      currentCell = "";
-      continue;
-    }
-
-    if (char === "\r") {
-      continue;
-    }
-
-    if (char === "\n") {
-      currentRow.push(currentCell);
-      currentCell = "";
-
-      if (currentRow.some((value) => value.trim() !== "")) {
-        rows.push(currentRow);
-      }
-
-      currentRow = [];
-      continue;
-    }
-
-    currentCell += char;
-  }
-
-  currentRow.push(currentCell);
-
-  if (currentRow.some((value) => value.trim() !== "")) {
-    rows.push(currentRow);
-  }
-
-  if (rows.length === 0) {
-    return [];
-  }
-
-  const headers = rows[0].map(normalizeHeader);
-  const duplicateHeader = headers.find(
-    (header, index) => header.length === 0 || headers.indexOf(header) !== index
-  );
-
-  if (duplicateHeader) {
-    throw new Error(`CSV headers are invalid. Problem header: "${duplicateHeader || "(empty)"}".`);
-  }
-
-  return rows.slice(1).map((row, rowIndex) => {
-    if (row.length > headers.length) {
-      throw new Error(`CSV row ${rowIndex + 2} has more columns than the header row.`);
-    }
-
-    return headers.reduce<CsvRecord>((record, header, headerIndex) => {
-      record[header] = row[headerIndex] ?? "";
-      return record;
-    }, {});
-  });
-}
-
-function parseNumericField(value: string, fieldName: string, rowRef: string) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${fieldName} must be a non-negative number (${rowRef}).`);
-  }
-
-  return parsed;
-}
-
-function parseOptionalNumericField(value: string, fieldName: string, rowRef: string) {
-  if (value.trim().length === 0) {
-    return null;
-  }
-
-  return parseNumericField(value, fieldName, rowRef);
-}
-
-function parseBooleanField(value: string, fieldName: string, rowRef: string) {
-  const normalized = value.trim().toLowerCase();
-
-  if (["true", "1", "yes", "y"].includes(normalized)) {
-    return true;
-  }
-
-  if (["false", "0", "no", "n"].includes(normalized)) {
-    return false;
-  }
-
-  throw new Error(`${fieldName} must be one of true/false/1/0/yes/no (${rowRef}).`);
-}
-
-function parseOptionalBooleanField(value: string, fieldName: string, rowRef: string) {
-  if (value.trim().length === 0) {
-    return null;
-  }
-
-  return parseBooleanField(value, fieldName, rowRef);
-}
-
-function parseOptionalPeriodField(value: string, fieldName: string, rowRef: string) {
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(trimmed)) {
-    throw new Error(`${fieldName} must match YYYY-MM (${rowRef}).`);
-  }
-
-  return trimmed;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function parseOptionalJsonRecordField(value: string, fieldName: string, rowRef: string) {
-  const trimmed = value.trim();
-
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  let parsed: unknown;
-
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    throw new Error(`${fieldName} must be valid JSON (${rowRef}).`);
-  }
-
-  if (!isRecord(parsed)) {
-    throw new Error(`${fieldName} must be a JSON object (${rowRef}).`);
-  }
-
-  return parsed;
-}
+import { readSnapshotText } from "./snapshot-storage";
 
 type ProcessSnapshotImportRunResult =
   | {
@@ -200,6 +29,12 @@ type ProcessSnapshotImportRunResult =
       importRun: Awaited<ReturnType<typeof failSnapshotImportRun>>;
       reason: string;
     };
+
+function looksLikeJsonSnapshot(text: string, fileUri: string) {
+  const trimmed = text.trimStart();
+
+  return /\.json(?:$|[?#])/i.test(fileUri) || trimmed.startsWith("{") || trimmed.startsWith("[");
+}
 
 export async function processSnapshotImportRun(
   importRunId: string
@@ -215,148 +50,105 @@ export async function processSnapshotImportRun(
   let rowCountRaw = 0;
 
   try {
-    const csvText = await readSnapshotCsvText(importRun.fileUri);
-    const records = parseCsvRecords(csvText);
-    rowCountRaw = records.length;
+    const snapshotText = await readSnapshotText(importRun.fileUri);
 
-    if (records.length === 0) {
-      throw new Error("CSV import file does not contain any data rows.");
-    }
+    if (looksLikeJsonSnapshot(snapshotText, importRun.fileUri)) {
+      const payload = parseCanonicalSnapshotText(snapshotText);
+      const derivedData = buildDerivedSnapshotDataFromCanonical(payload, {
+        snapshotDateFrom: importRun.snapshot.dateFrom,
+        snapshotDateTo: importRun.snapshot.dateTo
+      });
 
-    const seenKeys = new Set<string>();
-    const issues: SnapshotImportIssueInput[] = [];
-    const facts: SnapshotMemberMonthFactInput[] = [];
+      rowCountRaw = countCanonicalSnapshotRows(payload);
 
-    for (const [index, record] of records.entries()) {
-      const rowRef = `row:${index + 2}`;
+      if (rowCountRaw === 0) {
+        throw new Error("Canonical snapshot import file does not contain any canonical entities.");
+      }
 
-      for (const header of snapshotImportCsvHeaders) {
-        if (!(header in record)) {
-          issues.push({
-            severity: "ERROR",
-            issueType: "missing_required_column",
-            message: `Required import column "${header}" is missing.`,
-            rowRef
-          });
+      const derivedValidation = validateCompatibilitySnapshotFacts(
+        derivedData.memberMonthFacts,
+        {
+          mode: "understanding_doc_strict",
+          poolPeriodFacts: derivedData.poolPeriodFacts,
+          canonicalSnapshotId: payload.snapshot_id
         }
-      }
+      );
 
-      const rawRow = snapshotImportCsvRowSchema.safeParse(record);
-
-      if (!rawRow.success) {
-        issues.push({
-          severity: "ERROR",
-          issueType: "row_schema_invalid",
-          message: rawRow.error.issues[0]?.message ?? "CSV row is invalid.",
-          rowRef
+      if (derivedValidation.issues.some((issue) => issue.severity === "ERROR")) {
+        const failedRun = await failSnapshotImportRun(importRun.id, {
+          message: "Canonical snapshot import failed due to derived fact issues.",
+          rowCountRaw,
+          rowCountImported: derivedData.memberMonthFacts.length,
+          issues: derivedValidation.issues
         });
-        continue;
-      }
 
-      try {
-        const recognizedRevenueUsd = parseOptionalNumericField(
-          rawRow.data.recognized_revenue_usd,
-          "recognized_revenue_usd",
-          rowRef
-        );
-        const grossMarginUsd = parseOptionalNumericField(
-          rawRow.data.gross_margin_usd,
-          "gross_margin_usd",
-          rowRef
-        );
-        const memberJoinPeriod = parseOptionalPeriodField(
-          rawRow.data.member_join_period,
-          "member_join_period",
-          rowRef
-        );
-        const isAffiliate = parseOptionalBooleanField(
-          rawRow.data.is_affiliate,
-          "is_affiliate",
-          rowRef
-        );
-        const crossAppActive = parseOptionalBooleanField(
-          rawRow.data.cross_app_active,
-          "cross_app_active",
-          rowRef
-        );
-        const extraJson = parseOptionalJsonRecordField(
-          rawRow.data.extra_json,
-          "extra_json",
-          rowRef
-        );
-        const metadataJsonEntries = Object.entries({
-          recognizedRevenueUsd,
-          grossMarginUsd,
-          memberJoinPeriod,
-          isAffiliate,
-          crossAppActive
-        }).filter(([, value]) => value !== null);
-        const derivedMetadata =
-          metadataJsonEntries.length > 0 ? Object.fromEntries(metadataJsonEntries) : null;
-        const metadataJson =
-          extraJson || derivedMetadata
-            ? {
-                ...(extraJson ?? {}),
-                ...(derivedMetadata ?? {})
-              }
-            : null;
-        const parsedFact = snapshotMemberMonthFactSchema.parse({
-          periodKey: rawRow.data.period_key.trim(),
-          memberKey: rawRow.data.member_key.trim(),
-          sourceSystem: rawRow.data.source_system.trim(),
-          memberTier: rawRow.data.member_tier.trim() || null,
-          groupKey: rawRow.data.group_key.trim() || null,
-          pcVolume: parseNumericField(rawRow.data.pc_volume, "pc_volume", rowRef),
-          spRewardBasis: parseNumericField(
-            rawRow.data.sp_reward_basis,
-            "sp_reward_basis",
-            rowRef
-          ),
-          globalRewardUsd: parseNumericField(
-            rawRow.data.global_reward_usd,
-            "global_reward_usd",
-            rowRef
-          ),
-          poolRewardUsd: parseNumericField(
-            rawRow.data.pool_reward_usd,
-            "pool_reward_usd",
-            rowRef
-          ),
-          cashoutUsd: parseNumericField(rawRow.data.cashout_usd, "cashout_usd", rowRef),
-          sinkSpendUsd: parseNumericField(rawRow.data.sink_spend_usd, "sink_spend_usd", rowRef),
-          activeMember: parseBooleanField(rawRow.data.active_member, "active_member", rowRef),
-          metadataJson
+        await writeAuditEvent({
+          actorUserId: importRun.requestedByUserId,
+          entityType: "dataset_snapshot",
+          entityId: importRun.snapshotId,
+          action: "snapshot.import_failed",
+          metadata: {
+            importRunId: failedRun.id,
+            issueCount: derivedValidation.issues.length
+          }
         });
-        const fact: SnapshotMemberMonthFactInput = {
-          ...parsedFact,
-          metadataJson: metadataJson as SnapshotMemberMonthFactInput["metadataJson"]
+
+        return {
+          ok: false,
+          importRun: failedRun,
+          reason: "Canonical snapshot import failed due to derived fact issues."
         };
-
-        const uniqueKey = [fact.periodKey, fact.memberKey, fact.sourceSystem].join("::");
-
-        if (seenKeys.has(uniqueKey)) {
-          issues.push({
-            severity: "ERROR",
-            issueType: "duplicate_member_month_fact",
-            message: "Duplicate period/member/source row detected within the CSV import.",
-            rowRef
-          });
-          continue;
-        }
-
-        seenKeys.add(uniqueKey);
-        facts.push(fact);
-      } catch (error) {
-        issues.push({
-          severity: "ERROR",
-          issueType: "row_value_invalid",
-          message: error instanceof Error ? error.message : "CSV row contains invalid values.",
-          rowRef
-        });
       }
+
+      await replaceCanonicalSnapshotData(
+        toReplaceCanonicalSnapshotDataInput(importRun.snapshotId, importRun.id, payload)
+      );
+
+      const completedRun = await replaceSnapshotFactsAndCompleteImport(
+        importRun.id,
+        importRun.snapshotId,
+        derivedData.memberMonthFacts,
+        {
+          rowCountRaw,
+          rowCountImported: derivedData.memberMonthFacts.length,
+          rewardSourcePeriodFacts: derivedData.rewardSourcePeriodFacts,
+          poolPeriodFacts: derivedData.poolPeriodFacts,
+          canonicalSourceSnapshotKey: payload.snapshot_id,
+          notes: `Imported canonical snapshot payload with ${rowCountRaw} canonical entities and derived ${derivedData.memberMonthFacts.length} compatibility member-period facts in understanding_doc_strict mode.${
+            derivedValidation.issues.length > 0 ? ` Import warnings: ${derivedValidation.issues.length}.` : ""
+          }`,
+          issues: derivedValidation.issues
+        }
+      );
+
+      await writeAuditEvent({
+        actorUserId: importRun.requestedByUserId,
+        entityType: "dataset_snapshot",
+        entityId: importRun.snapshotId,
+        action: "snapshot.import_completed",
+        metadata: {
+          importRunId: completedRun.id,
+          importFormat: "canonical_json",
+          rowCountImported: completedRun.rowCountImported
+        }
+      });
+
+      return {
+        ok: true,
+        importRun: completedRun,
+        rowCountImported: completedRun.rowCountImported
+      };
     }
 
-    if (issues.length > 0) {
+    const { rowCountRaw: parsedRowCountRaw, facts, issues } = parseCompatibilityCsvSnapshotText(
+      snapshotText,
+      {
+        mode: "understanding_doc_strict"
+      }
+    );
+    rowCountRaw = parsedRowCountRaw;
+
+    if (issues.some((issue) => issue.severity === "ERROR")) {
       const failedRun = await failSnapshotImportRun(importRun.id, {
         message: "Snapshot import failed due to CSV issues.",
         rowCountRaw,
@@ -382,6 +174,23 @@ export async function processSnapshotImportRun(
       };
     }
 
+    await replaceCanonicalSnapshotData({
+      snapshotId: importRun.snapshotId,
+      importRunId: importRun.id,
+      members: [],
+      memberAliases: [],
+      roleHistory: [],
+      offers: [],
+      businessEvents: [],
+      pcEntries: [],
+      spEntries: [],
+      rewardObligations: [],
+      poolEntries: [],
+      cashoutEvents: [],
+      qualificationWindows: [],
+      qualificationStatusHistory: []
+    });
+
     const completedRun = await replaceSnapshotFactsAndCompleteImport(
       importRun.id,
       importRun.snapshotId,
@@ -389,7 +198,11 @@ export async function processSnapshotImportRun(
       {
         rowCountRaw,
         rowCountImported: facts.length,
-        notes: `Imported ${facts.length} canonical member-month facts.`
+        canonicalSourceSnapshotKey: null,
+        notes: `Imported ${facts.length} compatibility member-month facts from CSV input in understanding_doc_strict mode.${
+          issues.length > 0 ? ` Import warnings: ${issues.length}.` : ""
+        }`,
+        issues
       }
     );
 
@@ -400,6 +213,7 @@ export async function processSnapshotImportRun(
       action: "snapshot.import_completed",
       metadata: {
         importRunId: completedRun.id,
+        importFormat: "legacy_member_month_csv",
         rowCountImported: completedRun.rowCountImported
       }
     });

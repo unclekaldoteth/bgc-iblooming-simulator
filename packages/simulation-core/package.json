@@ -7,7 +7,7 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "echo 'No tests yet for @bgc-alpha/simulation-core'"
+    "test": "node --import tsx --test src/run-simulation.test.ts"
   },
   "exports": {
     ".": "./src/index.ts"

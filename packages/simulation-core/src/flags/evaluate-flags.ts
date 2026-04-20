@@ -38,7 +38,7 @@ export function evaluateFlags(
       flag_type: "payout_pressure_exceeds_inflow",
       severity:
         summary.payout_inflow_ratio > thresholds.payout_inflow_critical ? "critical" : "warning",
-      message: "Projected payout pressure exceeds modeled inflow."
+      message: "Modeled obligations exceed the recognized revenue support available in this snapshot."
     });
   }
 

@@ -39,6 +39,7 @@ export type SimulationResultExportMilestone = {
   pressure: string;
   runway: string;
   topShare: string;
+  netDelta?: string;
   reasons: string[];
 };
 
@@ -159,11 +160,11 @@ ${group.rows.map((row) => `| ${row.segment} | ${row.measure} | ${row.value} |`).
 - Verdict: ${report.decisionPack.verdict}
 - Recommendation: ${report.decisionPack.recommendation}
 
-### Preferred Settings
+### Evaluated Scenario Basis
 
 ${renderList(report.decisionPack.preferredSettings, "None.")}
 
-### Rejected Settings
+### Blockers / Rejection Reasons
 
 ${renderList(report.decisionPack.rejectedSettings, "None.")}
 
@@ -201,6 +202,7 @@ ${
 - Pressure: ${milestone.pressure}
 - Runway: ${milestone.runway}
 - Top 10% Share: ${milestone.topShare}
+- Net Treasury Delta: ${milestone.netDelta ?? "n/a"}
 - Reasons:
 ${milestone.reasons.map((item) => `  - ${item}`).join("\n") || "  - None"}`
         )
@@ -349,11 +351,11 @@ export function renderSimulationResultCsv(report: SimulationResultExport) {
   );
 
   for (const item of report.decisionPack.preferredSettings) {
-    rows.push(renderCsvRow(["decision_pack", "preferred_setting", item, "Preferred Setting", "", "", "", "", "", item, "", ""]));
+    rows.push(renderCsvRow(["decision_pack", "scenario_basis", item, "Evaluated Scenario Basis", "", "", "", "", "", item, "", ""]));
   }
 
   for (const item of report.decisionPack.rejectedSettings) {
-    rows.push(renderCsvRow(["decision_pack", "rejected_setting", item, "Rejected Setting", "", "", "", "", "", item, "", ""]));
+    rows.push(renderCsvRow(["decision_pack", "blocker", item, "Blocker / Rejection Reason", "", "", "", "", "", item, "", ""]));
   }
 
   for (const objective of report.decisionPack.strategicObjectives) {
@@ -373,6 +375,25 @@ export function renderSimulationResultCsv(report: SimulationResultExport) {
         objective.reasons.join(" | ")
       ])
     );
+
+    for (const metric of objective.primaryMetrics) {
+      rows.push(
+        renderCsvRow([
+          "decision_pack",
+          "strategic_goal_primary_metric",
+          metric,
+          "Primary Metric",
+          objective.status,
+          "",
+          "",
+          "",
+          objective.title,
+          metric,
+          objective.evidence,
+          ""
+        ])
+      );
+    }
   }
 
   for (const milestone of report.decisionPack.milestoneCheckpoints) {
@@ -388,7 +409,9 @@ export function renderSimulationResultCsv(report: SimulationResultExport) {
         "",
         "",
         milestone.pressure,
-        `Runway: ${milestone.runway}; Top 10% Share: ${milestone.topShare}`,
+        `Runway: ${milestone.runway}; Top 10% Share: ${milestone.topShare}; Net Treasury Delta: ${
+          milestone.netDelta ?? "n/a"
+        }`,
         milestone.reasons.join(" | ")
       ])
     );

@@ -27,6 +27,13 @@ const scoreFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2
 });
 
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  style: "currency"
+});
+
 export function readDecisionPack(value: unknown): DecisionPack | null {
   const parsed = decisionPackSchema.safeParse(value);
   return parsed.success ? parsed.data : null;
@@ -55,6 +62,8 @@ export function formatStrategicMetricValue(value: number, unit: StrategicMetricU
   const formatted = scoreFormatter.format(value);
 
   switch (unit) {
+    case "usd":
+      return currencyFormatter.format(value);
     case "percent":
       return `${formatted}%`;
     case "ratio":

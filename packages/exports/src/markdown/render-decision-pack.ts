@@ -1,5 +1,16 @@
 import type { DecisionPack } from "@bgc-alpha/schemas";
 
+const metricValueFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2
+});
+
+const metricCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  style: "currency"
+});
+
 const policyStatusLabels: Record<string, string> = {
   candidate: "Ready",
   risky: "Needs Review",
@@ -32,6 +43,17 @@ function getObjectiveLabel(value: string) {
   return objectiveLabels[value] ?? value;
 }
 
+function formatMetricValue(value: number, unit: string) {
+  const formatted = metricValueFormatter.format(value);
+
+  if (unit === "usd") return metricCurrencyFormatter.format(value);
+  if (unit === "percent") return `${formatted}%`;
+  if (unit === "ratio") return `${formatted}x`;
+  if (unit === "months") return `${formatted} mo`;
+
+  return formatted;
+}
+
 export function renderDecisionPackMarkdown(pack: DecisionPack) {
   return `# ${pack.title}
 
@@ -43,11 +65,11 @@ ${getPolicyStatusLabel(pack.policy_status)}
 
 ${pack.recommendation}
 
-## Preferred Settings
+## Evaluated Scenario Basis
 
 ${pack.preferred_settings.map((item) => `- ${item}`).join("\n")}
 
-## Rejected Settings
+## Blockers / Rejection Reasons
 
 ${pack.rejected_settings.map((item) => `- ${item}`).join("\n")}
 
@@ -65,7 +87,7 @@ ${
 - Evidence: ${getEvidenceLevelLabel(objective.evidence_level)}
 - Primary metrics:
 ${objective.primary_metrics
-  .map((metric) => `  - ${metric.label}: ${metric.value} (${metric.unit})`)
+  .map((metric) => `  - ${metric.label}: ${formatMetricValue(metric.value, metric.unit)}`)
   .join("\n")}
 - Reasons:
 ${objective.reasons.map((reason) => `  - ${reason}`).join("\n")}`
@@ -84,9 +106,10 @@ ${
 
 - Period: ${milestone.start_period_key} to ${milestone.end_period_key}
 - Status: ${getPolicyStatusLabel(milestone.policy_status)}
-- Payout / Inflow: ${milestone.summary_metrics.payout_inflow_ratio}
-- Reserve runway: ${milestone.summary_metrics.reserve_runway_months}
+- Treasury pressure (obligations / recognized revenue): ${milestone.summary_metrics.payout_inflow_ratio}
+- Reserve runway (months): ${milestone.summary_metrics.reserve_runway_months}
 - Reward concentration top 10%: ${milestone.summary_metrics.reward_concentration_top10_pct}
+- Net treasury delta: ${metricCurrencyFormatter.format(milestone.summary_metrics.company_net_treasury_delta_total)}
 - Strong objectives: ${milestone.strong_objectives.map(getObjectiveLabel).join(", ") || "none"}
 - Weak objectives: ${milestone.weak_objectives.map(getObjectiveLabel).join(", ") || "none"}
 - Reasons:

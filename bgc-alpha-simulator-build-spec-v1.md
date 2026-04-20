@@ -357,10 +357,13 @@ Compare multiple runs side by side.
 
 ### Main Components
 
-- run selector
-- comparison table
-- delta highlights
-- “best candidate” summary area
+- selected-run manager
+- radar quick-scan
+- compare decision snapshot
+- business cashflow comparison
+- ALPHA policy comparison
+- treasury risk comparison
+- distribution, strategic-goal, milestone, and audit sections
 
 ### Comparison Dimensions
 
@@ -377,7 +380,7 @@ Compare multiple runs side by side.
 ### States
 
 - fewer than 2 runs selected
-- 2-4 runs selected
+- 2-5 runs selected
 - comparison export ready
 
 ## 8.6 Distribution
@@ -432,17 +435,19 @@ Create a founder-ready summary from one run or a comparison set.
 ### Main Components
 
 - recommendation status
-- preferred settings
-- rejected settings
+- evaluated scenario basis
+- blockers or rejection reasons
 - unresolved questions
+- strategic-goal evidence
+- milestone gates
 - export actions
 
 ### Required Sections
 
 - scenario context
 - key recommendation
-- why this scenario is preferred
-- what risks remain
+- why this scenario is currently defensible
+- what risks or blockers remain
 - what founders still need to decide
 
 ## 9. Core User Flows

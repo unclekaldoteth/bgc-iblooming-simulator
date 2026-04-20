@@ -1,3 +1,4 @@
+export * from "./canonical";
 export * from "./decision-pack";
 export * from "./import";
 export * from "./metrics";

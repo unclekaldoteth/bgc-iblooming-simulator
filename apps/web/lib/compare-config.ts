@@ -1,18 +1,50 @@
-export const compareMetricKeys = [
+export const compareCashflowMetricKeys = [
+  "company_gross_cash_in_total",
+  "company_retained_revenue_total",
+  "company_partner_payout_out_total",
+  "company_direct_reward_obligation_total",
+  "company_pool_funding_obligation_total",
+  "company_actual_payout_out_total",
+  "company_product_fulfillment_out_total",
+  "company_net_treasury_delta_total"
+] as const;
+
+export const compareAlphaMetricKeys = [
   "alpha_issued_total",
   "alpha_spent_total",
   "alpha_held_total",
+  "alpha_cashout_equivalent_total"
+] as const;
+
+export const compareTreasuryMetricKeys = [
   "payout_inflow_ratio",
   "reserve_runway_months",
+  "sink_utilization_rate",
   "reward_concentration_top10_pct"
+] as const;
+
+export const compareMetricKeys = [
+  ...compareCashflowMetricKeys,
+  ...compareAlphaMetricKeys,
+  ...compareTreasuryMetricKeys
 ] as const;
 
 export const compareMetricOptimization: Record<string, "lower" | "higher"> = {
   alpha_issued_total: "higher",
   alpha_spent_total: "higher",
   alpha_held_total: "higher",
+  alpha_cashout_equivalent_total: "lower",
+  company_actual_payout_out_total: "lower",
+  company_direct_reward_obligation_total: "lower",
+  company_gross_cash_in_total: "higher",
+  company_net_treasury_delta_total: "higher",
+  company_partner_payout_out_total: "lower",
+  company_pool_funding_obligation_total: "lower",
+  company_product_fulfillment_out_total: "lower",
+  company_retained_revenue_total: "higher",
   payout_inflow_ratio: "lower",
   reserve_runway_months: "higher",
+  sink_utilization_rate: "higher",
   reward_concentration_top10_pct: "lower"
 };
 

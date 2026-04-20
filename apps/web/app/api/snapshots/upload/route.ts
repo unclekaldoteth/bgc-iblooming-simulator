@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { writeAuditEvent } from "@bgc-alpha/db";
 import {
   hasBlobReadWriteToken,
-  saveUploadedSnapshotCsv
+  saveUploadedSnapshotFile
 } from "@bgc-alpha/db/snapshot-storage";
 
 import { authorizeApiRequest } from "@/lib/auth-session";
@@ -61,10 +61,10 @@ export async function POST(request: Request) {
       const upload = formData.get("file");
 
       if (!(upload instanceof File)) {
-        throw new Error("CSV file is required.");
+        throw new Error("Snapshot file is required.");
       }
 
-      const savedFile = await saveUploadedSnapshotCsv(upload);
+      const savedFile = await saveUploadedSnapshotFile(upload);
 
       await writeAuditEvent({
         actorUserId: authResult.user.id,
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
       actorUserId = authResult.user.id;
 
       if (!isSnapshotUploadPathname(body.payload.pathname)) {
-        throw new Error("Only CSV uploads inside the snapshots folder are allowed.");
+        throw new Error("Only snapshot data uploads inside the snapshots folder are allowed.");
       }
     }
 
@@ -115,13 +115,19 @@ export async function POST(request: Request) {
         }
 
         if (!isSnapshotUploadPathname(pathname)) {
-          throw new Error("Only CSV uploads inside the snapshots folder are allowed.");
+          throw new Error("Only snapshot data uploads inside the snapshots folder are allowed.");
         }
 
         const payload = parseSnapshotUploadTokenPayload(clientPayload);
 
         return {
-          allowedContentTypes: ["text/csv", "application/csv", "application/vnd.ms-excel"],
+          allowedContentTypes: [
+            "text/csv",
+            "application/csv",
+            "application/vnd.ms-excel",
+            "application/json",
+            "text/json"
+          ],
           maximumSizeInBytes: maxSnapshotUploadBytes,
           tokenPayload: JSON.stringify({
             actorUserId,

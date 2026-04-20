@@ -4,7 +4,12 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 
 import {
+  applyFounderScenarioGuardrails,
+  evaluateFounderScenarioGuardrails,
+  founderSafePassiveCohortAssumptions,
   scenarioCohortAssumptionsSchema,
+  scenarioGuardrailMatrix,
+  type ScenarioGuardrailIssue,
   type ScenarioCohortAssumptions,
   type ScenarioMilestoneScheduleItem,
   type ScenarioParameters
@@ -104,7 +109,15 @@ type ScenarioRecord = {
   updatedAt: string;
 };
 
-type BaselineModelRecord = { id: string; versionName: string; status: string; };
+type BaselineModelRecord = {
+  id: string;
+  versionName: string;
+  status: string;
+  guardrailDefaults: {
+    reward_global_factor: number;
+    reward_pool_factor: number;
+  };
+};
 type SnapshotOption = { id: string; name: string; validationStatus: string; importedFactCount: number; };
 type ScenarioFormState = {
   name: string;
@@ -137,6 +150,47 @@ const templateDescriptions: Record<ScenarioRecord["templateType"], string> = {
   Stress: "Restrictive settings to test worst-case treasury drain"
 };
 
+function getBaselineModelRecord(
+  baselineModels: BaselineModelRecord[],
+  modelVersionId: string
+) {
+  return baselineModels.find((item) => item.id === modelVersionId) ?? baselineModels[0] ?? null;
+}
+
+function sanitizeScenarioParameters(
+  parameters: ScenarioParameters,
+  baselineModels: BaselineModelRecord[],
+  modelVersionId: string
+) {
+  return applyFounderScenarioGuardrails(
+    parameters,
+    getBaselineModelRecord(baselineModels, modelVersionId)?.guardrailDefaults
+  );
+}
+
+function evaluateScenarioGuardrailsForModel(
+  parameters: ScenarioParameters,
+  baselineModels: BaselineModelRecord[],
+  modelVersionId: string
+) {
+  return evaluateFounderScenarioGuardrails(
+    parameters,
+    getBaselineModelRecord(baselineModels, modelVersionId)?.guardrailDefaults
+  );
+}
+
+function formatGuardrailIssueMessage(
+  issues: ScenarioGuardrailIssue[] | undefined,
+  fallback: string
+) {
+  if (!issues || issues.length === 0) {
+    return fallback;
+  }
+
+  const firstError = issues.find((issue) => issue.severity === "ERROR") ?? issues[0];
+  return firstError?.message ?? fallback;
+}
+
 
 
 function ChevronIcon() {
@@ -161,6 +215,17 @@ type RunLaunchResponse = {
   run?: { id: string; status?: string };
   error?: string;
   existingRunId?: string;
+  guardrailIssues?: ScenarioGuardrailIssue[];
+};
+
+type ScenarioMutationResponse = {
+  scenario?: {
+    id: string;
+    name: string;
+    snapshotIdDefault: string | null;
+  };
+  error?: string;
+  guardrailIssues?: ScenarioGuardrailIssue[];
 };
 
 type ScenarioConsoleMessage = {
@@ -173,6 +238,11 @@ function createDefaultFormState(
   baselineModels: BaselineModelRecord[]
 ): ScenarioFormState {
   const activeModel = baselineModels.find((item) => item.status === "ACTIVE") ?? baselineModels[0];
+  const parameters = sanitizeScenarioParameters(
+    templateDefaults.Baseline,
+    baselineModels,
+    activeModel?.id ?? ""
+  );
 
   return {
     name: "",
@@ -180,20 +250,29 @@ function createDefaultFormState(
     description: "",
     snapshotIdDefault: "",
     modelVersionId: activeModel?.id ?? "",
-    parameters: templateDefaults.Baseline,
-    milestones: [...templateDefaults.Baseline.milestone_schedule]
+    parameters,
+    milestones: [...parameters.milestone_schedule]
   };
 }
 
-function createFormStateFromScenario(scenario: ScenarioRecord): ScenarioFormState {
+function createFormStateFromScenario(
+  scenario: ScenarioRecord,
+  baselineModels: BaselineModelRecord[]
+): ScenarioFormState {
+  const parameters = sanitizeScenarioParameters(
+    scenario.parameterJson,
+    baselineModels,
+    scenario.modelVersionId
+  );
+
   return {
     name: scenario.name,
     templateType: scenario.templateType,
     description: scenario.description ?? "",
     snapshotIdDefault: scenario.snapshotIdDefault ?? "",
     modelVersionId: scenario.modelVersionId,
-    parameters: scenario.parameterJson,
-    milestones: [...scenario.parameterJson.milestone_schedule]
+    parameters,
+    milestones: [...parameters.milestone_schedule]
   };
 }
 
@@ -204,25 +283,36 @@ function buildScenarioParameters(formState: ScenarioFormState): ScenarioParamete
   };
 }
 
-function buildScenarioPayload(formState: ScenarioFormState) {
+function buildScenarioPayload(
+  formState: ScenarioFormState,
+  baselineModels: BaselineModelRecord[]
+) {
   return {
     name: formState.name,
     templateType: formState.templateType,
     description: formState.description || null,
     snapshotIdDefault: formState.snapshotIdDefault || null,
     modelVersionId: formState.modelVersionId,
-    parameters: buildScenarioParameters(formState)
+    parameters: sanitizeScenarioParameters(
+      buildScenarioParameters(formState),
+      baselineModels,
+      formState.modelVersionId
+    )
   };
 }
 
-function getScenarioPayloadFingerprint(formState: ScenarioFormState) {
-  return JSON.stringify(buildScenarioPayload(formState));
+function getScenarioPayloadFingerprint(
+  formState: ScenarioFormState,
+  baselineModels: BaselineModelRecord[]
+) {
+  return JSON.stringify(buildScenarioPayload(formState, baselineModels));
 }
 
 function getRunLaunchErrorMessage(
   errorCode: string | undefined,
   scenarioName: string,
-  existingRunId?: string
+  existingRunId?: string,
+  guardrailIssues?: ScenarioGuardrailIssue[]
 ) {
   switch (errorCode) {
     case "duplicate_run":
@@ -241,17 +331,32 @@ function getRunLaunchErrorMessage(
       return `${scenarioName} could not be found. Refresh and try again.`;
     case "validation_failed":
       return `Run launch failed validation for ${scenarioName}. Check the scenario inputs and try again.`;
+    case "scenario_guardrail_failed":
+      return formatGuardrailIssueMessage(
+        guardrailIssues,
+        `${scenarioName} still contains locked founder-unsafe parameters. Update the scenario before running it.`
+      );
     default:
       return `Run failed for ${scenarioName}.`;
   }
 }
 
 function getDraftRunDisabledReason(
+  parameters: ScenarioParameters,
+  modelVersionId: string,
+  baselineModels: BaselineModelRecord[],
   snapshotIdDefault: string,
   snapshots: SnapshotOption[],
   canRun: boolean
 ) {
   if (!canRun) return "You do not have permission to run simulations.";
+  const guardrailIssues = evaluateScenarioGuardrailsForModel(
+    parameters,
+    baselineModels,
+    modelVersionId
+  );
+  const blockingIssue = guardrailIssues.find((issue) => issue.severity === "ERROR");
+  if (blockingIssue) return blockingIssue.message;
   if (!snapshotIdDefault) return "Attach a default data set before running this scenario.";
 
   const snapshot = snapshots.find((item) => item.id === snapshotIdDefault);
@@ -263,6 +368,34 @@ function getDraftRunDisabledReason(
   if (snapshot.importedFactCount === 0) {
     return "Import rows into the default data set before running this scenario.";
   }
+  return null;
+}
+
+function getSavedScenarioRunDisabledReason(
+  scenario: ScenarioRecord,
+  baselineModels: BaselineModelRecord[],
+  canRun: boolean
+) {
+  if (!canRun) return "You do not have permission to run simulations.";
+
+  const guardrailIssues = evaluateScenarioGuardrailsForModel(
+    scenario.parameterJson,
+    baselineModels,
+    scenario.modelVersionId
+  );
+  const blockingIssue = guardrailIssues.find((issue) => issue.severity === "ERROR");
+  if (blockingIssue) return blockingIssue.message;
+
+  if (!scenario.snapshotDefault) {
+    return "Attach a default data set before running this scenario.";
+  }
+  if (scenario.snapshotDefault.validationStatus !== "APPROVED") {
+    return "Approve the default data set before running this scenario.";
+  }
+  if (scenario.snapshotDefault.importedFactCount === 0) {
+    return "Import rows into the default data set before running this scenario.";
+  }
+
   return null;
 }
 
@@ -298,11 +431,11 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
   }
 
   function startEdit(scenario: ScenarioRecord) {
-    const nextFormState = createFormStateFromScenario(scenario);
+    const nextFormState = createFormStateFromScenario(scenario, baselineModels);
 
     setMessage(null);
     setEditingScenarioId(scenario.id);
-    setSavedScenarioFingerprint(getScenarioPayloadFingerprint(nextFormState));
+    setSavedScenarioFingerprint(getScenarioPayloadFingerprint(nextFormState, baselineModels));
     setRunReadyScenarioId(null);
     setShowForm(true);
     setFormState(nextFormState);
@@ -330,7 +463,8 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
           text: getRunLaunchErrorMessage(
             payload.error,
             scenarioName,
-            payload.existingRunId
+            payload.existingRunId,
+            payload.guardrailIssues
           ),
           actionHref: `/runs/${payload.existingRunId}`,
           actionLabel: "Open Existing Result"
@@ -339,7 +473,12 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
       }
 
       setMessage({
-        text: getRunLaunchErrorMessage(payload?.error, scenarioName)
+        text: getRunLaunchErrorMessage(
+          payload?.error,
+          scenarioName,
+          payload?.existingRunId,
+          payload?.guardrailIssues
+        )
       });
       return;
     }
@@ -363,12 +502,27 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
     router.push(`/runs/${runId}`);
   }
 
-  const currentPayloadFingerprint = getScenarioPayloadFingerprint(formState);
+  const currentPayloadFingerprint = getScenarioPayloadFingerprint(formState, baselineModels);
   const hasScenarioChanges = editingScenarioId
     ? currentPayloadFingerprint !== savedScenarioFingerprint
     : false;
+  const currentScenarioGuardrailIssues = evaluateScenarioGuardrailsForModel(
+    buildScenarioParameters(formState),
+    baselineModels,
+    formState.modelVersionId
+  );
+  const currentScenarioGuardrailError = currentScenarioGuardrailIssues.find(
+    (issue) => issue.severity === "ERROR"
+  );
   const editRunDisabledReason = editingScenarioId
-    ? getDraftRunDisabledReason(formState.snapshotIdDefault, snapshots, canRun)
+    ? getDraftRunDisabledReason(
+        buildScenarioParameters(formState),
+        formState.modelVersionId,
+        baselineModels,
+        formState.snapshotIdDefault,
+        snapshots,
+        canRun
+      )
     : null;
   const showRunAfterUpdateButton =
     Boolean(editingScenarioId) &&
@@ -439,11 +593,16 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                   data-selected={formState.templateType === template}
                   key={template}
                   onClick={() => {
+                    const sanitizedParameters = sanitizeScenarioParameters(
+                      templateDefaults[template],
+                      baselineModels,
+                      formState.modelVersionId
+                    );
                     setFormState(c => ({
                       ...c,
                       templateType: template,
-                      parameters: templateDefaults[template],
-                      milestones: [...templateDefaults[template].milestone_schedule]
+                      parameters: sanitizedParameters,
+                      milestones: [...sanitizedParameters.milestone_schedule]
                     }));
                   }}
                   type="button"
@@ -463,7 +622,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 startTransition(async () => {
                   const endpoint = editingScenarioId ? `/api/scenarios/${editingScenarioId}` : "/api/scenarios";
                   const method = editingScenarioId ? "PATCH" : "POST";
-                  const payload = buildScenarioPayload(formState);
+                  const payload = buildScenarioPayload(formState, baselineModels);
 
                   if (editingScenarioId && !hasScenarioChanges) {
                     setRunReadyScenarioId(null);
@@ -478,9 +637,18 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
                   });
+                  const responsePayload = (await response.json().catch(() => null)) as ScenarioMutationResponse | null;
                   if (!response.ok) {
                     setRunReadyScenarioId(null);
-                    setMessage({ text: "Save failed. Check inputs." });
+                    setMessage({
+                      text:
+                        responsePayload?.error === "scenario_guardrail_failed"
+                          ? formatGuardrailIssueMessage(
+                              responsePayload?.guardrailIssues,
+                              "Save failed because the scenario still contains founder-unsafe parameters."
+                            )
+                          : "Save failed. Check inputs."
+                    });
                     return;
                   }
 
@@ -494,10 +662,23 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                     return;
                   }
 
+                  const createdScenarioId = responsePayload?.scenario?.id;
+
+                  if (!createdScenarioId) {
+                    setRunReadyScenarioId(null);
+                    setMessage({
+                      text: "Scenario created, but the scenario id was missing from the response. Refresh and run it from Saved Scenarios."
+                    });
+                    router.refresh();
+                    return;
+                  }
+
+                  setEditingScenarioId(createdScenarioId);
+                  setSavedScenarioFingerprint(currentPayloadFingerprint);
+                  setRunReadyScenarioId(createdScenarioId);
                   setMessage({
-                    text: "Scenario created."
+                    text: "Scenario created. You can run it now."
                   });
-                  resetForm();
                   router.refresh();
                 });
               }}
@@ -509,7 +690,27 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 </label>
                 <label className="field">
                   <span>Baseline model</span>
-                  <select disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, modelVersionId: e.target.value }))} value={formState.modelVersionId}>
+                  <select
+                    disabled={!canWrite || isPending}
+                    onChange={(e) => {
+                      const nextModelVersionId = e.target.value;
+                      setFormState(c => {
+                        const sanitizedParameters = sanitizeScenarioParameters(
+                          buildScenarioParameters(c),
+                          baselineModels,
+                          nextModelVersionId
+                        );
+
+                        return {
+                          ...c,
+                          modelVersionId: nextModelVersionId,
+                          parameters: sanitizedParameters,
+                          milestones: [...sanitizedParameters.milestone_schedule]
+                        };
+                      });
+                    }}
+                    value={formState.modelVersionId}
+                  >
                     {baselineModels.map((m) => <option key={m.id} value={m.id}>{m.versionName} ({m.status})</option>)}
                   </select>
                 </label>
@@ -527,6 +728,53 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 <span>Description</span>
                 <input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, description: e.target.value }))} value={formState.description} placeholder="Optional notes about this scenario" />
               </label>
+
+              <div
+                className="card"
+                style={{
+                  background: "var(--surface-subtle)",
+                  borderStyle: "dashed",
+                  display: "grid",
+                  gap: "0.65rem",
+                  marginBottom: "0.25rem",
+                  padding: "0.9rem"
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "flex-start" }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Founder-Safe Scenario Guardrails</h4>
+                    <p className="muted" style={{ fontSize: "0.78rem", margin: "0.25rem 0 0" }}>
+                      Understanding-doc truth stays fixed. Scenario only changes ALPHA policy levers that remain defensible.
+                    </p>
+                  </div>
+                  <span className="badge badge--neutral">Founder Mode</span>
+                </div>
+                {currentScenarioGuardrailError ? (
+                  <p style={{ color: "var(--status-risky)", fontSize: "0.78rem", margin: 0 }}>
+                    {currentScenarioGuardrailError.message}
+                  </p>
+                ) : null}
+                <div style={{ display: "grid", gap: "0.45rem" }}>
+                  {(["allowed", "conditional", "not_safe"] as const).map((status) => {
+                    const entries = scenarioGuardrailMatrix.filter((entry) => entry.status === status);
+                    const title =
+                      status === "allowed"
+                        ? "Allowed"
+                        : status === "conditional"
+                          ? "Assumption"
+                          : "Locked";
+
+                    return (
+                      <div key={status}>
+                        <p style={{ margin: "0 0 0.2rem", fontSize: "0.76rem", fontWeight: 600 }}>{title}</p>
+                        <p className="muted" style={{ fontSize: "0.76rem", margin: 0, lineHeight: 1.5 }}>
+                          {entries.map((entry) => entry.parameter_key).join(", ")}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               {/* Accordion: Conversion Rules */}
               <div className="accordion-section" data-open={openSections.has("conversion")}>
@@ -555,14 +803,23 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               <div className="accordion-section" data-open={openSections.has("reward")}>
                 <button className="accordion-header" onClick={() => toggleSection("reward")} type="button">
                   Reward Settings
-                  <span className="accordion-summary">Global: {p.reward_global_factor}x · Pool: {p.reward_pool_factor}x · Cap: ${p.cap_user_monthly}</span>
+                  <span className="accordion-summary">Caps + sink · reward factors locked</span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("reward") ? (
                   <div className="accordion-body">
+                    <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
+                      Generic global/pool reward multipliers are locked to the neutral baseline model values so the scenario cannot rewrite named reward sources from the understanding document.
+                    </p>
                     <div className="parameter-grid">
-                      <label className="field"><span>Global reward factor</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, reward_global_factor: val } }))} step="0.01" value={p.reward_global_factor} /></label>
-                      <label className="field"><span>Pool reward factor</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, reward_pool_factor: val } }))} step="0.01" value={p.reward_pool_factor} /></label>
+                      <label className="field">
+                        <span>Global reward factor</span>
+                        <input disabled value={String(p.reward_global_factor)} />
+                      </label>
+                      <label className="field">
+                        <span>Pool reward factor</span>
+                        <input disabled value={String(p.reward_pool_factor)} />
+                      </label>
                       <label className="field"><span>User monthly cap ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_user_monthly: e.target.value } }))} value={p.cap_user_monthly} /></label>
                       <label className="field"><span>Group monthly cap ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_group_monthly: e.target.value } }))} value={p.cap_group_monthly} /></label>
                       <label className="field"><span>Sink target (%)</span><NumericInput disabled={!canWrite || isPending} min="0" max="1" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, sink_target: val } }))} step="0.01" value={p.sink_target} /></label>
@@ -594,20 +851,21 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               {/* Accordion: Growth Assumptions */}
               <div className="accordion-section" data-open={openSections.has("cohort")}>
                 <button className="accordion-header" onClick={() => toggleSection("cohort")} type="button">
-                  Growth Assumptions
-                  <span className="accordion-summary">{p.cohort_assumptions.new_members_per_month} new/mo · {p.cohort_assumptions.monthly_churn_rate_pct}% churn</span>
+                  Growth Projection
+                  <span className="accordion-summary">Locked off for founder-safe mode</span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("cohort") ? (
                   <div className="accordion-body">
+                    <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
+                      Synthetic member growth, churn, and reactivation are disabled in founder-safe mode because they are not faithful to understanding-doc event logic.
+                    </p>
                     <div className="parameter-grid">
-                      <label className="field"><span>New members/month</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, new_members_per_month: val } } }))} value={p.cohort_assumptions.new_members_per_month} /></label>
-                      <label className="field"><span>Monthly churn (%)</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, monthly_churn_rate_pct: val } } }))} step="0.1" value={p.cohort_assumptions.monthly_churn_rate_pct} /></label>
-                      <label className="field"><span>Reactivation rate (%)</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, monthly_reactivation_rate_pct: val } } }))} step="0.1" value={p.cohort_assumptions.monthly_reactivation_rate_pct} /></label>
-                      <label className="field"><span>Affiliate share (%)</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, affiliate_new_member_share_pct: val } } }))} value={p.cohort_assumptions.affiliate_new_member_share_pct} /></label>
-                      <label className="field"><span>Cross-app adoption (%)</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, cross_app_adoption_rate_pct: val } } }))} value={p.cohort_assumptions.cross_app_adoption_rate_pct} /></label>
-                      <label className="field"><span>New member value factor</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, new_member_value_factor: val } } }))} step="0.01" value={p.cohort_assumptions.new_member_value_factor} /></label>
-                      <label className="field"><span>Reactivated value factor</span><NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cohort_assumptions: { ...c.parameters.cohort_assumptions, reactivated_member_value_factor: val } } }))} step="0.01" value={p.cohort_assumptions.reactivated_member_value_factor} /></label>
+                      <label className="field"><span>New members/month</span><input disabled value={String(founderSafePassiveCohortAssumptions.new_members_per_month)} /></label>
+                      <label className="field"><span>Monthly churn (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.monthly_churn_rate_pct)} /></label>
+                      <label className="field"><span>Reactivation rate (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.monthly_reactivation_rate_pct)} /></label>
+                      <label className="field"><span>Affiliate share (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.affiliate_new_member_share_pct)} /></label>
+                      <label className="field"><span>Cross-app adoption (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.cross_app_adoption_rate_pct)} /></label>
                     </div>
                   </div>
                 ) : null}
@@ -622,6 +880,9 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 </button>
                 {openSections.has("advanced") ? (
                   <div className="accordion-body">
+                    <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
+                      Projection horizon and milestone schedule are allowed, but they must be presented as scenario assumptions rather than direct consequences of the understanding document.
+                    </p>
                     <label className="field" style={{ marginBottom: "0.5rem" }}>
                       <span>Projection horizon (months)</span>
                       <small>Leave empty to use the default from the data range.</small>
@@ -783,11 +1044,16 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
             {scenarios.map((scenario) => {
+              const runDisabledReason = scenario.latestRun
+                ? null
+                : getSavedScenarioRunDisabledReason(
+                    scenario,
+                    baselineModels,
+                    canRun
+                  );
               const seeResultDisabledReason = !canReadRuns
                 ? "You do not have permission to view simulation results."
-                : !scenario.latestRun
-                  ? "No saved result yet."
-                  : null;
+                : null;
 
               return (
                 <div className="card" key={scenario.id}>
@@ -808,20 +1074,41 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 )}
                 <div className="action-row">
                   <button className="ghost-button" disabled={!canWrite} onClick={() => startEdit(scenario)} type="button" style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}>Edit</button>
-                  <button
-                    className="primary-button"
-                    disabled={Boolean(seeResultDisabledReason) || isPending}
-                    onClick={() => {
-                      if (scenario.latestRun) {
-                        router.push(`/runs/${scenario.latestRun.id}`);
-                      }
-                    }}
-                    type="button"
-                    title={seeResultDisabledReason ?? undefined}
-                    style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
-                  >
-                    See Result
-                  </button>
+                  {scenario.latestRun ? (
+                    <button
+                      className="primary-button"
+                      disabled={Boolean(seeResultDisabledReason) || isPending}
+                      onClick={() => {
+                        if (scenario.latestRun) {
+                          router.push(`/runs/${scenario.latestRun.id}`);
+                        }
+                      }}
+                      type="button"
+                      title={seeResultDisabledReason ?? undefined}
+                      style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+                    >
+                      See Result
+                    </button>
+                  ) : (
+                    <button
+                      className="primary-button"
+                      disabled={Boolean(runDisabledReason) || isPending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          await launchScenarioRun(
+                            scenario.id,
+                            scenario.name,
+                            scenario.snapshotIdDefault ?? undefined
+                          );
+                        });
+                      }}
+                      type="button"
+                      title={runDisabledReason ?? undefined}
+                      style={{ fontSize: "0.78rem", padding: "0.35rem 0.65rem" }}
+                    >
+                      Run ▶
+                    </button>
+                  )}
                 </div>
                 </div>
               );

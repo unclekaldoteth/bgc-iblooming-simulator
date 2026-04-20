@@ -36,6 +36,30 @@ export type DatasetSimulationFact = {
   memberJoinPeriod?: string | null;
   isAffiliate?: boolean | null;
   crossAppActive?: boolean | null;
+  grossCashInUsd?: number | null;
+  retainedRevenueUsd?: number | null;
+  partnerPayoutOutUsd?: number | null;
+  productFulfillmentOutUsd?: number | null;
+  poolFundingEntries?:
+    | Array<{
+        poolCode: string;
+        fundingAmount: number;
+        distributionAmount: number;
+        distributionCycle: string;
+        cycleKey: string;
+      }>
+    | null;
+};
+
+export type DatasetPoolPeriodFact = {
+  periodKey: string;
+  poolCode: string;
+  distributionCycle: string;
+  unit: string;
+  fundingAmount: number;
+  distributionAmount: number;
+  recipientCount: number;
+  shareCountTotal: number;
 };
 
 export type SimulationBaselineModel = {
@@ -125,6 +149,7 @@ export type SimulationBaselineModel = {
 export type DatasetSimulationInput = {
   request: SimulationRunRequest;
   facts: DatasetSimulationFact[];
+  poolPeriodFacts?: DatasetPoolPeriodFact[];
   baselineModel: SimulationBaselineModel;
 };
 
@@ -170,6 +195,25 @@ type WorkingFactRow = ProjectedSimulationFact & {
   inflow: number;
 };
 
+type PoolFundingPeriodRow = {
+  periodKey: string;
+  sourceSystem: string;
+  poolCode: string;
+  fundingAmount: number;
+};
+
+type FinancialPeriodLedger = {
+  periodKey: string;
+  grossCashIn: number;
+  retainedRevenue: number;
+  partnerPayoutOut: number;
+  directRewardObligation: number;
+  poolFundingObligation: number;
+  actualPayoutOut: number;
+  productFulfillmentOut: number;
+  netTreasuryDelta: number;
+};
+
 type MemberProjectionState = {
   memberKey: string;
   templateMemberKey: string;
@@ -190,6 +234,18 @@ function clamp(value: number, minimum: number, maximum: number) {
 
 function safeDivide(numerator: number, denominator: number) {
   return denominator > 0 ? numerator / denominator : 0;
+}
+
+function computePayoutInflowRatio(liability: number, inflow: number) {
+  if (liability <= 0) {
+    return 0;
+  }
+
+  if (inflow <= 0) {
+    return liability;
+  }
+
+  return liability / inflow;
 }
 
 function stableHash(input: string) {
@@ -233,6 +289,14 @@ function addMonthsToPeriodKey(periodKey: string, monthOffset: number) {
 function parseCap(value: string, fallback: number, minimum: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.max(minimum, parsed) : fallback;
+}
+
+function normalizeSourceSystem(sourceSystem: string) {
+  return sourceSystem.trim().toLowerCase();
+}
+
+function inferPoolSourceSystem(poolCode: string) {
+  return poolCode.startsWith("IB_") ? "iblooming" : "bgc";
 }
 
 function buildFactKey(fact: Pick<DatasetSimulationFact, "periodKey" | "memberKey" | "sourceSystem">) {
@@ -590,6 +654,18 @@ function buildCohortProjectedFacts(
         sinkSpendUsd: roundMetric(Math.max(templateFact.sinkSpendUsd, 0) * valueScale),
         recognizedRevenueUsd: roundMetric(Math.max(templateFact.recognizedRevenueUsd ?? 0, 0) * valueScale),
         grossMarginUsd: roundMetric(Math.max(templateFact.grossMarginUsd ?? 0, 0) * valueScale),
+        grossCashInUsd: roundMetric(Math.max(templateFact.grossCashInUsd ?? 0, 0) * valueScale),
+        retainedRevenueUsd: roundMetric(Math.max(templateFact.retainedRevenueUsd ?? 0, 0) * valueScale),
+        partnerPayoutOutUsd: roundMetric(Math.max(templateFact.partnerPayoutOutUsd ?? 0, 0) * valueScale),
+        productFulfillmentOutUsd: roundMetric(
+          Math.max(templateFact.productFulfillmentOutUsd ?? 0, 0) * valueScale
+        ),
+        poolFundingEntries:
+          templateFact.poolFundingEntries?.map((entry) => ({
+            ...entry,
+            fundingAmount: roundMetric(Math.max(entry.fundingAmount, 0) * valueScale),
+            distributionAmount: roundMetric(Math.max(entry.distributionAmount, 0) * valueScale)
+          })) ?? null,
         activeMember,
         memberJoinPeriod,
         isAffiliate: state.synthetic ? state.isAffiliate : templateFact.isAffiliate,
@@ -804,23 +880,16 @@ function finalizeFactRows(
       cashoutEligible * cashoutModeFactor * feeRetentionFactor
     );
     const held = Math.max(row.issued - spent - cashout, 0);
+    // Treasury-facing pressure should stay anchored to the understanding-doc
+    // reward distributions already present in the snapshot truth. Founder-safe
+    // scenarios do not rewrite named reward families with generic multipliers.
     const rewardLiability =
-      row.globalRewardUsd *
-        parameters.rewardGlobalFactor *
-        baselineModel.rewardRules.global_reward_weight +
-      row.poolRewardUsd *
-        parameters.rewardPoolFactor *
-        baselineModel.rewardRules.pool_reward_weight;
+      Math.max(row.globalRewardUsd, 0) +
+      Math.max(row.poolRewardUsd, 0);
     const liability = rewardLiability + cashout;
-    const directRevenueSupport =
-      Math.max(row.recognizedRevenueUsd ?? 0, 0) *
-        baselineModel.strategicKpiAssumptions.revenue.recognized_revenue_inflow_weight +
-      Math.max(row.grossMarginUsd ?? 0, 0) *
-        baselineModel.strategicKpiAssumptions.revenue.gross_margin_inflow_weight;
-    const inflow =
-      safeDivide(row.pcVolume, baselineModel.conversionRules.pc_units_per_alpha) +
-      spent * baselineModel.treasuryRules.inflow_capture_rate +
-      directRevenueSupport;
+    // Company inflow is anchored to imported recognized revenue, not proxy
+    // conversions from PC issuance or internal ALPHA sink activity.
+    const inflow = Math.max(row.retainedRevenueUsd ?? row.recognizedRevenueUsd ?? 0, 0);
 
     return {
       ...row,
@@ -860,9 +929,144 @@ function buildFinalizedRows(
     });
 }
 
+function buildProjectedPoolFundingRows(
+  facts: ProjectedSimulationFact[],
+  poolPeriodFacts: DatasetPoolPeriodFact[] = []
+) {
+  if (poolPeriodFacts.length > 0) {
+    const projectedPeriods = [...new Set(facts.map((fact) => fact.periodKey))].sort();
+    const sourcePeriods = [...new Set(poolPeriodFacts.map((fact) => fact.periodKey))].sort();
+    const factsBySourcePeriod = new Map<string, DatasetPoolPeriodFact[]>();
+
+    for (const fact of poolPeriodFacts) {
+      const sourcePeriodFacts = factsBySourcePeriod.get(fact.periodKey) ?? [];
+      sourcePeriodFacts.push(fact);
+      factsBySourcePeriod.set(fact.periodKey, sourcePeriodFacts);
+    }
+
+    return projectedPeriods.flatMap<PoolFundingPeriodRow>((projectedPeriodKey, index) => {
+      const sourcePeriodKey = sourcePeriods[index % Math.max(sourcePeriods.length, 1)];
+
+      if (!sourcePeriodKey) {
+        return [];
+      }
+
+      return (factsBySourcePeriod.get(sourcePeriodKey) ?? [])
+        .filter((fact) => fact.unit === "USD" && fact.fundingAmount > 0)
+        .map((fact) => ({
+          periodKey: projectedPeriodKey,
+          sourceSystem: inferPoolSourceSystem(fact.poolCode),
+          poolCode: fact.poolCode,
+          fundingAmount: fact.fundingAmount
+        }));
+    });
+  }
+
+  const uniqueEntries = new Map<string, PoolFundingPeriodRow>();
+
+  for (const fact of facts) {
+    for (const entry of fact.poolFundingEntries ?? []) {
+      if (!(entry.fundingAmount > 0)) {
+        continue;
+      }
+
+      const sourceSystem = normalizeSourceSystem(fact.sourceSystem);
+      const uniqueKey = [fact.periodKey, sourceSystem, entry.poolCode, entry.cycleKey].join("::");
+
+      if (!uniqueEntries.has(uniqueKey)) {
+        uniqueEntries.set(uniqueKey, {
+          periodKey: fact.periodKey,
+          sourceSystem,
+          poolCode: entry.poolCode,
+          fundingAmount: entry.fundingAmount
+        });
+      }
+    }
+  }
+
+  return [...uniqueEntries.values()].sort((left, right) => {
+    return (
+      left.periodKey.localeCompare(right.periodKey) ||
+      left.sourceSystem.localeCompare(right.sourceSystem) ||
+      left.poolCode.localeCompare(right.poolCode)
+    );
+  });
+}
+
+function buildFinancialPeriodLedgers(
+  rows: WorkingFactRow[],
+  poolFundingRows: PoolFundingPeriodRow[]
+) {
+  const periodLedgers = new Map<string, FinancialPeriodLedger>();
+  const activePeriods = new Set(rows.map((row) => row.periodKey));
+
+  for (const row of rows) {
+    const periodLedger =
+      periodLedgers.get(row.periodKey) ??
+      ({
+        periodKey: row.periodKey,
+        grossCashIn: 0,
+        retainedRevenue: 0,
+        partnerPayoutOut: 0,
+        directRewardObligation: 0,
+        poolFundingObligation: 0,
+        actualPayoutOut: 0,
+        productFulfillmentOut: 0,
+        netTreasuryDelta: 0
+      } satisfies FinancialPeriodLedger);
+
+    periodLedger.grossCashIn += Math.max(row.grossCashInUsd ?? 0, 0);
+    periodLedger.retainedRevenue += Math.max(
+      row.retainedRevenueUsd ?? row.recognizedRevenueUsd ?? 0,
+      0
+    );
+    periodLedger.partnerPayoutOut += Math.max(row.partnerPayoutOutUsd ?? 0, 0);
+    periodLedger.directRewardObligation += Math.max(row.globalRewardUsd, 0);
+    periodLedger.actualPayoutOut += Math.max(row.cashout, 0);
+    periodLedger.productFulfillmentOut += Math.max(row.productFulfillmentOutUsd ?? 0, 0);
+
+    periodLedgers.set(row.periodKey, periodLedger);
+  }
+
+  for (const poolFundingRow of poolFundingRows) {
+    if (!activePeriods.has(poolFundingRow.periodKey)) {
+      continue;
+    }
+
+    const periodLedger =
+      periodLedgers.get(poolFundingRow.periodKey) ??
+      ({
+        periodKey: poolFundingRow.periodKey,
+        grossCashIn: 0,
+        retainedRevenue: 0,
+        partnerPayoutOut: 0,
+        directRewardObligation: 0,
+        poolFundingObligation: 0,
+        actualPayoutOut: 0,
+        productFulfillmentOut: 0,
+        netTreasuryDelta: 0
+      } satisfies FinancialPeriodLedger);
+
+    periodLedger.poolFundingObligation += Math.max(poolFundingRow.fundingAmount, 0);
+    periodLedgers.set(poolFundingRow.periodKey, periodLedger);
+  }
+
+  return [...periodLedgers.values()]
+    .sort((left, right) => left.periodKey.localeCompare(right.periodKey))
+    .map((ledger) => ({
+      ...ledger,
+      netTreasuryDelta:
+        ledger.retainedRevenue -
+        ledger.partnerPayoutOut -
+        ledger.actualPayoutOut -
+        ledger.productFulfillmentOut
+    }));
+}
+
 function buildSummaryMetrics(
   rows: WorkingFactRow[],
-  baselineModel: SimulationBaselineModel
+  baselineModel: SimulationBaselineModel,
+  poolFundingRows: PoolFundingPeriodRow[]
 ): SummaryMetrics {
   const summary = createDefaultSummaryMetrics();
   const issuedTotal = rows.reduce((total, row) => total + row.issued, 0);
@@ -871,6 +1075,36 @@ function buildSummaryMetrics(
   const cashoutTotal = rows.reduce((total, row) => total + row.cashout, 0);
   const liabilityTotal = rows.reduce((total, row) => total + row.liability, 0);
   const inflowTotal = rows.reduce((total, row) => total + row.inflow, 0);
+  const financialLedgers = buildFinancialPeriodLedgers(rows, poolFundingRows);
+  const grossCashInTotal = financialLedgers.reduce((total, ledger) => total + ledger.grossCashIn, 0);
+  const retainedRevenueTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.retainedRevenue,
+    0
+  );
+  const partnerPayoutOutTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.partnerPayoutOut,
+    0
+  );
+  const directRewardObligationTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.directRewardObligation,
+    0
+  );
+  const poolFundingObligationTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.poolFundingObligation,
+    0
+  );
+  const actualPayoutOutTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.actualPayoutOut,
+    0
+  );
+  const productFulfillmentOutTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.productFulfillmentOut,
+    0
+  );
+  const netTreasuryDeltaTotal = financialLedgers.reduce(
+    (total, ledger) => total + ledger.netTreasuryDelta,
+    0
+  );
   const periodCount = Math.max(
     1,
     new Set(rows.map((row) => row.periodKey)).size
@@ -884,7 +1118,7 @@ function buildSummaryMetrics(
   const memberTotals = [...issuedByMember.values()].sort((left, right) => right - left);
   const topCount = Math.max(1, Math.ceil(memberTotals.length * 0.1));
   const topIssued = memberTotals.slice(0, topCount).reduce((total, value) => total + value, 0);
-  const payoutInflowRatio = safeDivide(liabilityTotal, inflowTotal);
+  const payoutInflowRatio = computePayoutInflowRatio(liabilityTotal, inflowTotal);
   const monthlyInflow = inflowTotal / periodCount;
   const monthlyLiability = liabilityTotal / periodCount;
   const reserveRunwayMonths =
@@ -900,15 +1134,26 @@ function buildSummaryMetrics(
   summary.alpha_spent_total = roundMetric(spentTotal);
   summary.alpha_held_total = roundMetric(heldTotal);
   summary.alpha_cashout_equivalent_total = roundMetric(cashoutTotal);
+  summary.company_gross_cash_in_total = roundMetric(grossCashInTotal);
+  summary.company_retained_revenue_total = roundMetric(retainedRevenueTotal);
+  summary.company_partner_payout_out_total = roundMetric(partnerPayoutOutTotal);
+  summary.company_direct_reward_obligation_total = roundMetric(directRewardObligationTotal);
+  summary.company_pool_funding_obligation_total = roundMetric(poolFundingObligationTotal);
+  summary.company_actual_payout_out_total = roundMetric(actualPayoutOutTotal);
+  summary.company_product_fulfillment_out_total = roundMetric(productFulfillmentOutTotal);
+  summary.company_net_treasury_delta_total = roundMetric(netTreasuryDeltaTotal);
   summary.sink_utilization_rate = roundMetric(safeDivide(spentTotal, issuedTotal) * 100);
   summary.payout_inflow_ratio = roundMetric(payoutInflowRatio);
-  summary.reserve_runway_months = roundMetric(clamp(reserveRunwayMonths, 1, 24));
+  summary.reserve_runway_months = roundMetric(clamp(reserveRunwayMonths, 0, 24));
   summary.reward_concentration_top10_pct = roundMetric(safeDivide(topIssued, issuedTotal) * 100);
 
   return summary;
 }
 
-function buildTimeSeriesMetrics(rows: WorkingFactRow[]): RunTimeSeriesMetric[] {
+function buildTimeSeriesMetrics(
+  rows: WorkingFactRow[],
+  poolFundingRows: PoolFundingPeriodRow[]
+): RunTimeSeriesMetric[] {
   const periodMap = new Map<
     string,
     {
@@ -920,6 +1165,10 @@ function buildTimeSeriesMetrics(rows: WorkingFactRow[]): RunTimeSeriesMetric[] {
       inflow: number;
     }
   >();
+  const financialLedgers = buildFinancialPeriodLedgers(rows, poolFundingRows);
+  const financialByPeriod = new Map(
+    financialLedgers.map((ledger) => [ledger.periodKey, ledger] as const)
+  );
 
   for (const row of rows) {
     const period = periodMap.get(row.periodKey) ?? {
@@ -942,39 +1191,100 @@ function buildTimeSeriesMetrics(rows: WorkingFactRow[]): RunTimeSeriesMetric[] {
 
   return [...periodMap.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([periodKey, period]) => [
-      {
-        period_key: periodKey,
-        metric_key: "alpha_issued_total",
-        metric_value: roundMetric(period.issued)
-      },
-      {
-        period_key: periodKey,
-        metric_key: "alpha_spent_total",
-        metric_value: roundMetric(period.spent)
-      },
-      {
-        period_key: periodKey,
-        metric_key: "alpha_held_total",
-        metric_value: roundMetric(period.held)
-      },
-      {
-        period_key: periodKey,
-        metric_key: "alpha_cashout_equivalent_total",
-        metric_value: roundMetric(period.cashout)
-      },
-      {
-        period_key: periodKey,
-        metric_key: "payout_inflow_ratio",
-        metric_value: roundMetric(safeDivide(period.liability, period.inflow))
-      }
-    ]);
+    .flatMap(([periodKey, period]) => {
+      const financialLedger = financialByPeriod.get(periodKey);
+
+      return [
+        {
+          period_key: periodKey,
+          metric_key: "alpha_issued_total",
+          metric_value: roundMetric(period.issued)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_spent_total",
+          metric_value: roundMetric(period.spent)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_held_total",
+          metric_value: roundMetric(period.held)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_cashout_equivalent_total",
+          metric_value: roundMetric(period.cashout)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_gross_cash_in_total",
+          metric_value: roundMetric(financialLedger?.grossCashIn ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_retained_revenue_total",
+          metric_value: roundMetric(financialLedger?.retainedRevenue ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_partner_payout_out_total",
+          metric_value: roundMetric(financialLedger?.partnerPayoutOut ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_direct_reward_obligation_total",
+          metric_value: roundMetric(financialLedger?.directRewardObligation ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_pool_funding_obligation_total",
+          metric_value: roundMetric(financialLedger?.poolFundingObligation ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_actual_payout_out_total",
+          metric_value: roundMetric(financialLedger?.actualPayoutOut ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_product_fulfillment_out_total",
+          metric_value: roundMetric(financialLedger?.productFulfillmentOut ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "company_net_treasury_delta_total",
+          metric_value: roundMetric(financialLedger?.netTreasuryDelta ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "payout_inflow_ratio",
+          metric_value: roundMetric(computePayoutInflowRatio(period.liability, period.inflow))
+        }
+      ];
+    });
 }
 
-function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): RunSegmentMetric[] {
+function buildSegmentMetrics(
+  rows: WorkingFactRow[],
+  summary: SummaryMetrics,
+  poolFundingRows: PoolFundingPeriodRow[]
+): RunSegmentMetric[] {
   const segmentMetrics: RunSegmentMetric[] = [];
   const totalsByTier = new Map<string, number>();
   const totalsBySource = new Map<string, number>();
+  const financialBySource = new Map<
+    string,
+    {
+      grossCashIn: number;
+      retainedRevenue: number;
+      partnerPayoutOut: number;
+      directRewardObligation: number;
+      poolFundingObligation: number;
+      actualPayoutOut: number;
+      productFulfillmentOut: number;
+      netTreasuryDelta: number;
+    }
+  >();
   const totalsByMilestone = new Map<
     string,
     {
@@ -992,7 +1302,29 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
   for (const row of rows) {
     const tierKey = row.memberTier?.trim() || "unknown";
     totalsByTier.set(tierKey, (totalsByTier.get(tierKey) ?? 0) + row.issued);
-    totalsBySource.set(row.sourceSystem, (totalsBySource.get(row.sourceSystem) ?? 0) + row.issued);
+    const normalizedSourceSystem = normalizeSourceSystem(row.sourceSystem);
+    totalsBySource.set(normalizedSourceSystem, (totalsBySource.get(normalizedSourceSystem) ?? 0) + row.issued);
+    const sourceFinancial =
+      financialBySource.get(normalizedSourceSystem) ?? {
+        grossCashIn: 0,
+        retainedRevenue: 0,
+        partnerPayoutOut: 0,
+        directRewardObligation: 0,
+        poolFundingObligation: 0,
+        actualPayoutOut: 0,
+        productFulfillmentOut: 0,
+        netTreasuryDelta: 0
+      };
+    sourceFinancial.grossCashIn += Math.max(row.grossCashInUsd ?? 0, 0);
+    sourceFinancial.retainedRevenue += Math.max(
+      row.retainedRevenueUsd ?? row.recognizedRevenueUsd ?? 0,
+      0
+    );
+    sourceFinancial.partnerPayoutOut += Math.max(row.partnerPayoutOutUsd ?? 0, 0);
+    sourceFinancial.directRewardObligation += Math.max(row.globalRewardUsd, 0);
+    sourceFinancial.actualPayoutOut += Math.max(row.cashout, 0);
+    sourceFinancial.productFulfillmentOut += Math.max(row.productFulfillmentOutUsd ?? 0, 0);
+    financialBySource.set(normalizedSourceSystem, sourceFinancial);
     const milestone = totalsByMilestone.get(row.milestoneKey) ?? {
       label: row.milestoneLabel,
       periodStart: row.periodKey,
@@ -1013,6 +1345,22 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
     totalsByMilestone.set(row.milestoneKey, milestone);
   }
 
+  for (const poolFundingRow of poolFundingRows) {
+    const sourceFinancial =
+      financialBySource.get(poolFundingRow.sourceSystem) ?? {
+        grossCashIn: 0,
+        retainedRevenue: 0,
+        partnerPayoutOut: 0,
+        directRewardObligation: 0,
+        poolFundingObligation: 0,
+        actualPayoutOut: 0,
+        productFulfillmentOut: 0,
+        netTreasuryDelta: 0
+      };
+    sourceFinancial.poolFundingObligation += Math.max(poolFundingRow.fundingAmount, 0);
+    financialBySource.set(poolFundingRow.sourceSystem, sourceFinancial);
+  }
+
   for (const [tierKey, issued] of [...totalsByTier.entries()].sort(([left], [right]) =>
     left.localeCompare(right)
   )) {
@@ -1027,12 +1375,69 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
   for (const [sourceSystem, issued] of [...totalsBySource.entries()].sort(([left], [right]) =>
     left.localeCompare(right)
   )) {
-    segmentMetrics.push({
-      segment_type: "source_system",
-      segment_key: sourceSystem,
-      metric_key: "alpha_issued_total",
-      metric_value: roundMetric(issued)
-    });
+    const financial = financialBySource.get(sourceSystem);
+
+    segmentMetrics.push(
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "alpha_issued_total",
+        metric_value: roundMetric(issued)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_gross_cash_in_total",
+        metric_value: roundMetric(financial?.grossCashIn ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_retained_revenue_total",
+        metric_value: roundMetric(financial?.retainedRevenue ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_partner_payout_out_total",
+        metric_value: roundMetric(financial?.partnerPayoutOut ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_direct_reward_obligation_total",
+        metric_value: roundMetric(financial?.directRewardObligation ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_pool_funding_obligation_total",
+        metric_value: roundMetric(financial?.poolFundingObligation ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_actual_payout_out_total",
+        metric_value: roundMetric(financial?.actualPayoutOut ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_product_fulfillment_out_total",
+        metric_value: roundMetric(financial?.productFulfillmentOut ?? 0)
+      },
+      {
+        segment_type: "source_system",
+        segment_key: sourceSystem,
+        metric_key: "company_net_treasury_delta_total",
+        metric_value: roundMetric(
+          (financial?.retainedRevenue ?? 0) -
+            (financial?.partnerPayoutOut ?? 0) -
+            (financial?.actualPayoutOut ?? 0) -
+            (financial?.productFulfillmentOut ?? 0)
+        )
+      }
+    );
   }
 
   for (const [milestoneKey, totals] of [...totalsByMilestone.entries()].sort(([left], [right]) =>
@@ -1063,7 +1468,7 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
         segment_type: "milestone",
         segment_key: segmentKey,
         metric_key: "payout_inflow_ratio",
-        metric_value: roundMetric(safeDivide(totals.liability, totals.inflow))
+        metric_value: roundMetric(computePayoutInflowRatio(totals.liability, totals.inflow))
       }
     );
   }
@@ -1084,7 +1489,7 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
     {
       segment_type: "alpha_behavior",
       segment_key: "cashout",
-      metric_key: "usd_equivalent_total",
+      metric_key: "alpha_cashout_equivalent_total",
       metric_value: roundMetric(summary.alpha_cashout_equivalent_total)
     }
   );
@@ -1094,7 +1499,8 @@ function buildSegmentMetrics(rows: WorkingFactRow[], summary: SummaryMetrics): R
 
 function buildMilestoneEvaluations(
   rows: WorkingFactRow[],
-  baselineModel: SimulationBaselineModel
+  baselineModel: SimulationBaselineModel,
+  poolFundingRows: PoolFundingPeriodRow[]
 ): MilestoneEvaluation[] {
   const rowsByMilestone = new Map<string, WorkingFactRow[]>();
 
@@ -1111,7 +1517,7 @@ function buildMilestoneEvaluations(
           `${right.periodKey}::${right.memberKey}::${right.sourceSystem}`
         )
       );
-      const summary = buildSummaryMetrics(orderedRows, baselineModel);
+      const summary = buildSummaryMetrics(orderedRows, baselineModel, poolFundingRows);
       const flags = evaluateFlags(summary, baselineModel.recommendationThresholds);
       const recommendation = evaluateRecommendation(
         summary,
@@ -1168,11 +1574,19 @@ export function simulateScenario(input: DatasetSimulationInput): SimulationRunRe
     input.request.scenario.parameters,
     milestones
   );
+  const projectedPoolFundingRows = buildProjectedPoolFundingRows(
+    projectedFacts,
+    input.poolPeriodFacts ?? []
+  );
   const finalizedRows = buildFinalizedRows(projectedFacts, milestones, input.baselineModel);
-  const summary = buildSummaryMetrics(finalizedRows, input.baselineModel);
-  const timeSeriesMetrics = buildTimeSeriesMetrics(finalizedRows);
-  const segmentMetrics = buildSegmentMetrics(finalizedRows, summary);
-  const milestoneEvaluations = buildMilestoneEvaluations(finalizedRows, input.baselineModel);
+  const summary = buildSummaryMetrics(finalizedRows, input.baselineModel, projectedPoolFundingRows);
+  const timeSeriesMetrics = buildTimeSeriesMetrics(finalizedRows, projectedPoolFundingRows);
+  const segmentMetrics = buildSegmentMetrics(finalizedRows, summary, projectedPoolFundingRows);
+  const milestoneEvaluations = buildMilestoneEvaluations(
+    finalizedRows,
+    input.baselineModel,
+    projectedPoolFundingRows
+  );
   const strategicEvaluation = evaluateStrategicObjectives({
     rows: finalizedRows,
     summary,

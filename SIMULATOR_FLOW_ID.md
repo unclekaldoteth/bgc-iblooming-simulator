@@ -143,6 +143,10 @@ Cara paling gampang memahaminya:
     - status rekomendasi
 
     Output pentingnya meliputi:
+    - company gross cash in
+    - retained revenue
+    - net treasury delta
+    - actual payout out
     - total ALPHA issued
     - total spent
     - total held
@@ -152,30 +156,44 @@ Cara paling gampang memahaminya:
 
 11. **Review supporting views**  
     Dari halaman run, user bisa membuka:
-    - `Distribution`: siapa mendapat berapa banyak, per segment
-    - `Treasury`: runway, payout pressure, sink utilization, dan risk flags
-    - `Decision Pack`: output rekomendasi yang ditujukan untuk founder
+    - `Distribution`: perilaku ALPHA, konsentrasi issued share, total per fase, dan split per source system
+    - `Treasury`: company cashflow lens lebih dulu, lalu runway, payout pressure, internal use, dan risk flags
+    - `Decision Pack`: output rekomendasi untuk founder dengan scenario basis, blockers, dan export actions
 
     Ini adalah lapisan keputusan, di mana metrik mentah diterjemahkan menjadi makna bisnis.
 
 12. **Decision Pack**  
-    Sistem akan mengklasifikasikan scenario sebagai:
+    Sistem akan mengklasifikasikan scenario secara internal sebagai:
     - `candidate`
     - `risky`
     - `rejected`
 
-    Lalu sistem membuat decision pack sederhana yang berisi:
-    - status rekomendasi
-    - preferred settings
-    - rejected settings
+    Di surface founder-facing, labelnya tampil sebagai:
+    - `Ready`
+    - `Needs Review`
+    - `Do Not Use`
+
+    Lalu sistem membuat decision pack yang berisi:
+    - policy verdict
+    - context scenario
+    - evaluated scenario basis
+    - blockers atau rejection reasons
     - unresolved questions
-    - pilihan export
+    - evidence strategic goals
+    - milestone gates
+    - pilihan export full simulation report
 
     Ini adalah artefak yang memang ditujukan untuk diskusi founder.
 
 13. **Compare scenarios di `Compare`**  
     Terakhir, tim masuk ke halaman `Compare`.  
-    Halaman ini menampilkan completed runs secara side by side, sehingga stakeholder bisa membandingkan metrik utama antar scenario dan memutuskan setup kebijakan mana yang paling aman atau paling kuat.
+    Halaman ini menampilkan completed runs terpilih secara side by side, sehingga stakeholder bisa membandingkan shape skenario dan outcome bisnis antar scenario.
+
+    Alur compare saat ini adalah:
+    - pilih 2 sampai 5 run
+    - gunakan radar hanya sebagai quick scan
+    - baca business cashflow comparison lebih dulu
+    - lalu baca ALPHA policy comparison, treasury risk, distribution, strategic goals, dan milestones
 
 ## Versi Singkat Untuk Meeting
 

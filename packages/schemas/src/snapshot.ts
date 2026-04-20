@@ -13,6 +13,7 @@ export const datasetSnapshotSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
   sourceSystems: z.array(z.string()).min(1),
+  canonicalSourceSnapshotKey: z.string().nullable().optional(),
   dateFrom: z.string(),
   dateTo: z.string(),
   fileUri: z.string().min(1),

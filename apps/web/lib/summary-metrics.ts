@@ -1,8 +1,8 @@
 import type { SummaryMetrics } from "@bgc-alpha/schemas";
 
 export type SummaryMetricKey = keyof SummaryMetrics;
-export type SummaryMetricGroup = "outcome" | "signal";
-export type SummaryMetricUnit = "value" | "percent" | "ratio" | "months";
+export type SummaryMetricGroup = "outcome" | "cashflow" | "signal";
+export type SummaryMetricUnit = "value" | "usd" | "percent" | "ratio" | "months";
 
 export type SummaryMetricDefinition = {
   key: SummaryMetricKey;
@@ -16,6 +16,13 @@ export type SummaryMetricDefinition = {
 
 const metricValueFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
+});
+
+const metricCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0,
+  style: "currency",
 });
 
 function formatMonthCountLabel(months: number) {
@@ -53,12 +60,84 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
   },
   {
     key: "alpha_cashout_equivalent_total",
-    label: "Cash-Out Demand",
+    label: "ALPHA Cash-Out",
     shortLabel: "Cash-Out",
     description:
-      "Cash-out equivalent value released under the scenario's payout settings.",
+      "Amount of issued ALPHA released into the cash-out path under the scenario's payout settings.",
     group: "outcome",
     unit: "value",
+  },
+  {
+    key: "company_gross_cash_in_total",
+    label: "Gross Cash In",
+    shortLabel: "Gross In",
+    description:
+      "Gross business cash collected before pass-through partner payouts or internal obligations.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_retained_revenue_total",
+    label: "Retained Revenue",
+    shortLabel: "Revenue",
+    description:
+      "Revenue support that remains attributable to the company after pass-through splits.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_partner_payout_out_total",
+    label: "Partner Payout Out",
+    shortLabel: "Partner Out",
+    description:
+      "Pass-through partner payouts such as the CP creator share on iBLOOMING product sales.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_direct_reward_obligation_total",
+    label: "Direct Reward Obligations",
+    shortLabel: "Direct Obl.",
+    description:
+      "Direct reward obligations created by snapshot truth, such as RR, GR, LR, CPR, GRR, and iRR.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_pool_funding_obligation_total",
+    label: "Pool Funding Obligations",
+    shortLabel: "Pool Fund",
+    description:
+      "Pool funding obligations created by snapshot truth, kept separate from actual cash payouts.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_actual_payout_out_total",
+    label: "Actual Payout Out",
+    shortLabel: "Payout Out",
+    description:
+      "Actual cash-equivalent payouts released under the scenario's cash-out policy.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_product_fulfillment_out_total",
+    label: "Product Fulfillment Out",
+    shortLabel: "Fulfillment",
+    description:
+      "Physical-product fulfillment value triggered when PC is redeemed on the BGC side.",
+    group: "cashflow",
+    unit: "usd",
+  },
+  {
+    key: "company_net_treasury_delta_total",
+    label: "Net Treasury Delta",
+    shortLabel: "Net Delta",
+    description:
+      "Retained revenue minus partner payouts, actual member payouts, and product fulfillment out.",
+    group: "cashflow",
+    unit: "usd",
   },
   {
     key: "sink_utilization_rate",
@@ -74,7 +153,7 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     label: "Treasury Pressure",
     shortLabel: "Pressure",
     description:
-      "Payout pressure compared with treasury inflow. Above 1.0 means outflow is overtaking inflow.",
+      "Modeled obligations compared with imported recognized revenue support. Above 1.0 means obligations are overtaking recognized revenue support.",
     group: "signal",
     unit: "ratio",
     chartMax: 3,
@@ -84,7 +163,7 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     label: "Reserve Runway",
     shortLabel: "Runway",
     description:
-      "Estimated number of months the reserve can support the modeled payout profile.",
+      "Estimated number of months the reserve can support modeled obligations given the current recognized revenue support profile.",
     group: "signal",
     unit: "months",
     chartMax: 24,
@@ -114,6 +193,8 @@ export function formatSummaryMetricValue(key: SummaryMetricKey, value: number) {
   const formattedValue = metricValueFormatter.format(value);
 
   switch (definition.unit) {
+    case "usd":
+      return metricCurrencyFormatter.format(value);
     case "percent":
       return `${formattedValue}%`;
     case "ratio":

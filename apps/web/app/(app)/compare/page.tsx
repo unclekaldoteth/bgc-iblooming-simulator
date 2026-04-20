@@ -6,6 +6,7 @@ import { CompareConsole } from "@/components/compare-console";
 import { requirePageUser } from "@/lib/auth-session";
 import { compareMetricKeys, compareMetricOptimization } from "@/lib/compare-config";
 import {
+  formatStrategicMetricValue,
   readMilestoneEvaluations,
   readStrategicObjectives,
   strategicObjectiveLabels,
@@ -33,6 +34,9 @@ export default async function ComparePage() {
       objective_key: obj.objective_key,
       status: obj.status,
       score: obj.score,
+      evidence_level: obj.evidence_level,
+      primary_metrics: obj.primary_metrics.map((metric) => `${metric.label}: ${formatStrategicMetricValue(metric.value, metric.unit)}`),
+      reasons: obj.reasons,
     }));
     const milestoneEvaluations = readMilestoneEvaluations(recJson).map((ms) => ({
       milestone_key: ms.milestone_key,
@@ -40,9 +44,15 @@ export default async function ComparePage() {
       start_period_key: ms.start_period_key,
       end_period_key: ms.end_period_key,
       policy_status: ms.policy_status,
+      reasons: ms.reasons,
       summary_metrics: {
+        alpha_cashout_equivalent_total: ms.summary_metrics.alpha_cashout_equivalent_total,
+        company_actual_payout_out_total: ms.summary_metrics.company_actual_payout_out_total,
+        company_gross_cash_in_total: ms.summary_metrics.company_gross_cash_in_total,
+        company_net_treasury_delta_total: ms.summary_metrics.company_net_treasury_delta_total,
         payout_inflow_ratio: ms.summary_metrics.payout_inflow_ratio,
         reserve_runway_months: ms.summary_metrics.reserve_runway_months,
+        reward_concentration_top10_pct: ms.summary_metrics.reward_concentration_top10_pct,
       },
     }));
     const verdict = recJson
@@ -59,6 +69,12 @@ export default async function ComparePage() {
     scenario: { name: run.scenario.name },
     snapshot: { name: run.snapshot.name },
     summaryMetrics: run.summaryMetrics.map((m) => ({
+      metricKey: m.metricKey,
+      metricValue: m.metricValue,
+    })),
+    segmentMetrics: run.segmentMetrics.map((m) => ({
+      segmentType: m.segmentType,
+      segmentKey: m.segmentKey,
       metricKey: m.metricKey,
       metricValue: m.metricValue,
     })),

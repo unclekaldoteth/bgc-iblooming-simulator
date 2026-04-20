@@ -45,7 +45,7 @@ function sanitizeFilename(filename: string) {
       .toLowerCase()
       .replace(/[^a-z0-9._-]+/g, "-")
       .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "") || "snapshot.csv"
+      .replace(/^-|-$/g, "") || "snapshot.json"
   );
 }
 
@@ -61,17 +61,21 @@ export function getSnapshotUploadDirectory() {
   return path.join(resolveWorkspaceRoot(), LOCAL_SNAPSHOT_UPLOAD_PREFIX);
 }
 
-export async function saveUploadedSnapshotCsv(file: SnapshotUploadSource) {
-  if (!file.name.toLowerCase().endsWith(".csv")) {
-    throw new Error("Only .csv files are supported.");
+export function isSupportedSnapshotFilename(filename: string) {
+  return /\.(csv|json)$/i.test(filename);
+}
+
+export async function saveUploadedSnapshotFile(file: SnapshotUploadSource) {
+  if (!isSupportedSnapshotFilename(file.name)) {
+    throw new Error("Only .csv or .json files are supported.");
   }
 
   if (file.size <= 0) {
-    throw new Error("Upload a non-empty CSV file.");
+    throw new Error("Upload a non-empty snapshot file.");
   }
 
   if (file.size > maxSnapshotUploadBytes) {
-    throw new Error("CSV upload exceeds the 10 MB limit.");
+    throw new Error("Snapshot upload exceeds the 10 MB limit.");
   }
 
   const savedFilename = createSavedFilename(file.name);
@@ -98,7 +102,7 @@ export async function saveUploadedSnapshotCsv(file: SnapshotUploadSource) {
   };
 }
 
-export async function readSnapshotCsvText(fileUri: string) {
+export async function readSnapshotText(fileUri: string) {
   if (fileUri.startsWith("file://")) {
     return readFile(fileURLToPath(fileUri), "utf8");
   }
@@ -122,3 +126,6 @@ export async function readSnapshotCsvText(fileUri: string) {
   const resolvedPath = path.isAbsolute(fileUri) ? fileUri : path.resolve(process.cwd(), fileUri);
   return readFile(resolvedPath, "utf8");
 }
+
+export const saveUploadedSnapshotCsv = saveUploadedSnapshotFile;
+export const readSnapshotCsvText = readSnapshotText;

@@ -14,6 +14,7 @@ export const strategicObjectiveEvidenceLevelSchema = z.enum(["direct", "proxy", 
 
 export const strategicMetricUnitSchema = z.enum([
   "value",
+  "usd",
   "percent",
   "ratio",
   "months",

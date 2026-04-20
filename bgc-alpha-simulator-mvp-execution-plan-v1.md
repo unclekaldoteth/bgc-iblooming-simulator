@@ -26,7 +26,7 @@ The MVP is complete when an approved internal user can:
 4. run a deterministic simulation,
 5. compare run outputs,
 6. review treasury, fairness, and distribution results,
-7. export a founder-ready decision pack.
+7. export a founder-ready simulation report.
 
 ## 3. Delivery Principles
 
@@ -478,9 +478,10 @@ Type: Frontend
 Depends on: `T-500`, `T-503`  
 Acceptance criteria:
 
-- user can compare 2 to 4 runs,
-- key metric deltas are visible,
-- recommendation candidates are highlighted.
+- user can compare 2 to 5 runs,
+- selected runs can be managed without overcrowding the page,
+- cashflow comparison is shown before ALPHA policy comparison,
+- recommendation status and key deltas are visible.
 
 `T-505` Build overview page with recent runs and alerts  
 Type: Frontend  
@@ -513,7 +514,7 @@ Depends on: `T-406`, `T-503`, `T-600`
 Acceptance criteria:
 
 - generator can create a recommendation payload,
-- preferred, rejected, and unresolved sections are populated,
+- evaluated scenario basis, blockers, and unresolved sections are populated,
 - output is tied to source run(s).
 
 `T-602` Build Decision Pack page  
@@ -530,7 +531,7 @@ Type: Backend
 Depends on: `T-601`  
 Acceptance criteria:
 
-- system exports decision pack as markdown,
+- system exports full simulation report as markdown,
 - export is stored and downloadable.
 
 `T-604` Implement PDF export  

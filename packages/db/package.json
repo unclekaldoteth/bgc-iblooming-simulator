@@ -7,7 +7,7 @@
     "build": "prisma generate --schema=./prisma/schema.prisma && tsc --noEmit",
     "typecheck": "prisma generate --schema=./prisma/schema.prisma && tsc --noEmit",
     "lint": "prisma generate --schema=./prisma/schema.prisma && tsc --noEmit",
-    "test": "echo 'No tests yet for @bgc-alpha/db'",
+    "test": "prisma generate --schema=./prisma/schema.prisma && tsx --test src/snapshot-import-compatibility.test.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma",
     "prisma:push": "prisma db push --schema=./prisma/schema.prisma"
   },

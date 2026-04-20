@@ -815,8 +815,8 @@ function drawObjectiveCards(layout: PdfLayout, objectives: SimulationResultExpor
 }
 
 function drawMilestoneTable(layout: PdfLayout, milestones: SimulationResultExportMilestone[]) {
-  const headers = ["Milestone", "Period", "Status", "Pressure", "Runway", "Top 10%", "Reasons"];
-  const widths = [92, 94, 70, 62, 72, 64, layout.contentWidth - 454];
+  const headers = ["Milestone", "Status", "Pressure", "Runway", "Top 10%", "Net Delta", "Reasons"];
+  const widths = [112, 70, 58, 70, 58, 82, layout.contentWidth - 450];
   const x = layout.marginX;
   const padding = 7;
   const headerHeight = 24;
@@ -859,12 +859,12 @@ function drawMilestoneTable(layout: PdfLayout, milestones: SimulationResultExpor
 
   for (const milestone of milestones) {
     const cells = [
-      milestone.title,
-      milestone.period,
+      `${milestone.title} (${milestone.period})`,
       milestone.status,
       milestone.pressure,
       milestone.runway,
       milestone.topShare,
+      milestone.netDelta ?? "n/a",
       milestone.reasons.join("; ")
     ];
     const rowHeight =
@@ -967,13 +967,13 @@ export function renderSimulationResultStyledPdf(report: SimulationResultExport) 
     }
   }
 
-  drawSectionTitle(layout, "Decision Pack", "Verdict, recommended settings, goals, and milestone checkpoints.");
+  drawSectionTitle(layout, "Decision Pack", "Verdict, scenario evidence, blockers, goals, and milestone checkpoints.");
   drawDecisionHero(layout, report);
   drawListCards(
     layout,
-    "Preferred Settings",
+    "Evaluated Scenario Basis",
     report.decisionPack.preferredSettings,
-    "Rejected Settings",
+    "Blockers / Rejection Reasons",
     report.decisionPack.rejectedSettings
   );
 

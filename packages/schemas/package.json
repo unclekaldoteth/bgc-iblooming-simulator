@@ -7,7 +7,7 @@
     "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "echo 'No tests yet for @bgc-alpha/schemas'"
+    "test": "node --import tsx --test src/scenario.test.ts"
   },
   "exports": {
     ".": "./src/index.ts"

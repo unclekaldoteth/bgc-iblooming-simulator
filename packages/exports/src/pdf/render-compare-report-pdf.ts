@@ -534,7 +534,7 @@ function drawRadarCard(layout: PdfLayout, report: CompareReportExport) {
   drawSectionTitle(
     layout,
     "Scenario Comparison",
-    "Visual overlay of the selected scenarios. Larger area indicates a stronger combined profile."
+    "Visual overlay of the selected scenarios. Use the cashflow tables as the financial decision source of truth."
   );
 
   const legendColumns = report.runs.length > 4 ? 2 : 1;
@@ -927,9 +927,9 @@ export function renderCompareReportStyledPdf(report: CompareReportExport) {
   drawHeader(layout, report);
   drawSelectionSummary(layout, report.runs);
   drawRadarCard(layout, report);
-  drawComparisonTable(layout, report.runs, report.keyResults);
-  drawComparisonTable(layout, report.runs, report.goalComparison);
-  drawComparisonTable(layout, report.runs, report.milestoneComparison);
+  report.comparisonTables.forEach((table) => {
+    drawComparisonTable(layout, report.runs, table);
+  });
   drawRunContextTable(layout, report.runs);
 
   return layout.serialize();
