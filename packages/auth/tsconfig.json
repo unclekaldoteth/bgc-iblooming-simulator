@@ -2,5 +2,9 @@
   "extends": "../config/typescript/base.json",
   "include": [
     "src/**/*"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts"
   ]
 }
