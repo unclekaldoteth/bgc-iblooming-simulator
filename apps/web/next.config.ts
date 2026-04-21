@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
     "@bgc-alpha/auth",
     "@bgc-alpha/baseline-model",
     "@bgc-alpha/db",
+    "@bgc-alpha/exports",
     "@bgc-alpha/schemas",
     "@bgc-alpha/simulation-core",
     "@bgc-alpha/ui"

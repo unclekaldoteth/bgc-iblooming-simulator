@@ -3,6 +3,7 @@ export { renderDecisionPackMarkdown } from "./markdown/render-decision-pack";
 export { renderPdfPlaceholder } from "./pdf/render-pdf-placeholder";
 export {
   renderCompareReportPdf,
+  renderCompareReportMarkdown,
   type CompareReportExport,
   type CompareReportTone
 } from "./compare-report";

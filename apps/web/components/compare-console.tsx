@@ -290,7 +290,7 @@ export function CompareConsole({
     });
   }, [deferredSearchQuery, runDisplayLabels, runs, selectedIds]);
 
-  const compareExportHref = useMemo(() => {
+  const compareExportBaseHref = useMemo(() => {
     if (filteredRuns.length < 2) return null;
 
     const params = new URLSearchParams();
@@ -461,6 +461,65 @@ export function CompareConsole({
     }
   }
 
+  function getSimulationSummaryBadge(status: string) {
+    if (status === "ready") return "badge--candidate";
+    if (status === "review") return "badge--risky";
+    if (status === "blocked") return "badge--rejected";
+    return "badge--info";
+  }
+
+  function getSimulationSummaryStatusLabel(status: string) {
+    if (status === "ready") return "Ready";
+    if (status === "review") return "Needs Review";
+    if (status === "blocked") return "Blocked";
+    return "Info";
+  }
+
+  function getFounderQuestionBadge(status: string) {
+    if (status === "recommended") return "badge--candidate";
+    if (status === "pending_founder") return "badge--risky";
+    return "badge--rejected";
+  }
+
+  function getFounderQuestionStatusLabel(status: string) {
+    if (status === "recommended") return "Recommended";
+    if (status === "pending_founder") return "Founder Decision";
+    return "Blocked";
+  }
+
+  function getParameterClassificationLabel(classification: string) {
+    if (classification === "scenario_lever") return "Scenario Lever";
+    if (classification === "scenario_assumption") return "Scenario Assumption";
+    return "Locked Boundary";
+  }
+
+  function getParameterClassificationBadge(classification: string) {
+    if (classification === "scenario_lever") return "badge--candidate";
+    if (classification === "scenario_assumption") return "badge--risky";
+    return "badge--neutral";
+  }
+
+  function getImplementationPlanBadge(status: string) {
+    if (status === "ready") return "badge--candidate";
+    if (status === "in_progress") return "badge--risky";
+    if (status === "blocked") return "badge--rejected";
+    return "badge--neutral";
+  }
+
+  function getImplementationPlanStatusLabel(status: string) {
+    if (status === "ready") return "Ready";
+    if (status === "in_progress") return "In Progress";
+    if (status === "blocked") return "Blocked";
+    return "Deferred";
+  }
+
+  function getFinancialPostureBadge(posture: string) {
+    if (posture === "Safety-First" || posture === "Working Baseline") return "badge--candidate";
+    if (posture === "Expansion") return "badge--risky";
+    if (posture === "Shock Case") return "badge--rejected";
+    return "badge--neutral";
+  }
+
   function toggleRun(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -573,12 +632,24 @@ export function CompareConsole({
             </p>
           </div>
           <div className="scenario-selector-actions">
-            {compareExportHref ? (
-              <a className="selector-action-btn" href={compareExportHref}>
-                Download PDF
-              </a>
+            {compareExportBaseHref ? (
+              <>
+                <a className="selector-action-btn" href={`${compareExportBaseHref}&format=pdf`}>
+                  Download PDF
+                </a>
+                <a className="selector-action-btn" href={`${compareExportBaseHref}&format=md`}>
+                  Download MD
+                </a>
+                <a className="selector-action-btn" href={`${compareExportBaseHref}&format=json`}>
+                  Download JSON
+                </a>
+              </>
             ) : (
-              <span className="selector-action-btn selector-action-btn--disabled">Download PDF</span>
+              <>
+                <span className="selector-action-btn selector-action-btn--disabled">Download PDF</span>
+                <span className="selector-action-btn selector-action-btn--disabled">Download MD</span>
+                <span className="selector-action-btn selector-action-btn--disabled">Download JSON</span>
+              </>
             )}
             <button className="selector-action-btn" onClick={() => setSelectorOpen((value) => !value)} type="button">
               {selectorOpen ? "Close Selector" : "Manage Scenarios"}
@@ -682,6 +753,112 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
+            <h3>Simulation Summary</h3>
+            <p className="muted compare-section-note">
+              Compare-level readout designed for founder review. This keeps the selected scenarios, strongest current envelope, treasury posture, and truth posture in one place before diving into detailed tables.
+            </p>
+            <div className="decision-summary">
+              <div className="decision-summary__verdict">
+                <span className={`badge ${
+                  decisionSupport.simulationSummary.status === "recommended"
+                    ? "badge--candidate"
+                    : decisionSupport.simulationSummary.status === "review"
+                      ? "badge--risky"
+                      : "badge--rejected"
+                }`}>
+                  {decisionSupport.simulationSummary.status === "recommended"
+                    ? "Recommended"
+                    : decisionSupport.simulationSummary.status === "review"
+                      ? "Needs Review"
+                      : "Blocked"}
+                </span>
+                <p style={{ marginTop: "0.75rem" }}>{decisionSupport.simulationSummary.summary}</p>
+              </div>
+            </div>
+            <div className="table-wrap" style={{ marginTop: "1rem" }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Summary Item</th>
+                    <th>Status</th>
+                    <th>Current Readout</th>
+                    <th>Implication</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionSupport.simulationSummary.rows.map((row) => (
+                    <tr key={row.key}>
+                      <td><strong>{row.label}</strong></td>
+                      <td>
+                        <span className={`badge ${getSimulationSummaryBadge(row.status)}`}>
+                          {getSimulationSummaryStatusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td>{row.currentReadout}</td>
+                      <td>{row.implication}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
+            <h3>Executive Status Memo</h3>
+            <p className="muted compare-section-note">
+              Founder-facing status memo generated from the current compare set. This summarizes readiness, blockers, and what still needs an explicit decision before the package is closed.
+            </p>
+            <div className="decision-summary">
+              <div className="decision-summary__verdict">
+                <span className={`badge ${
+                  decisionSupport.executiveStatusMemo.status === "recommended"
+                    ? "badge--candidate"
+                    : decisionSupport.executiveStatusMemo.status === "review"
+                      ? "badge--risky"
+                      : "badge--rejected"
+                }`}>
+                  {decisionSupport.executiveStatusMemo.status === "recommended"
+                    ? "Working Ready"
+                    : decisionSupport.executiveStatusMemo.status === "review"
+                      ? "Decision Required"
+                      : "Blocked"}
+                </span>
+                <p style={{ marginTop: "0.75rem" }}>{decisionSupport.executiveStatusMemo.summary}</p>
+              </div>
+            </div>
+            <div className="table-wrap" style={{ marginTop: "1rem" }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Memo Item</th>
+                    <th>Status</th>
+                    <th>Current Readout</th>
+                    <th>Implication</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionSupport.executiveStatusMemo.rows.map((row) => (
+                    <tr key={row.key}>
+                      <td><strong>{row.label}</strong></td>
+                      <td>
+                        <span className={`badge ${getSimulationSummaryBadge(row.status)}`}>
+                          {getSimulationSummaryStatusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td>{row.currentReadout}</td>
+                      <td>{row.implication}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
             <h3>Compare Decision Snapshot</h3>
             <p className="muted compare-section-note">
               One-card readout per selected run. Cashflow and treasury signals are shown before ALPHA policy details.
@@ -731,6 +908,68 @@ export function CompareConsole({
                         {extra.adoptedBaselineNote ? ` · ${extra.adoptedBaselineNote}` : ""}
                       </p>
                     ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
+            <h3>Financial View by Scenario</h3>
+            <p className="muted compare-section-note">
+              Founder-facing cashflow readout per scenario. This compresses each option into money in, liability load, payout leakage, treasury posture, and the business tradeoff it represents.
+            </p>
+            <div className="compare-financial-grid">
+              {decisionSupport.financialScenarioView.rows.map((row) => {
+                const globalIdx = runs.findIndex((item) => item.id === row.runId);
+
+                return (
+                  <article className="compare-financial-card" key={row.runId}>
+                    <div className="compare-card-top">
+                      <span className="scenario-chip-dot" style={{ background: compareSeriesColors[globalIdx % compareSeriesColors.length], opacity: 1 }} />
+                      <strong>{row.label}</strong>
+                      <span className={`badge ${getFinancialPostureBadge(row.posture)}`}>{row.posture}</span>
+                    </div>
+                    <p className="compare-financial-summary">{row.summary}</p>
+                    <div className="compare-financial-metrics">
+                      <span>
+                        <small>Gross In</small>
+                        <strong>{formatCommonMetricValue("company_gross_cash_in_total", row.grossCashIn)}</strong>
+                      </span>
+                      <span>
+                        <small>Revenue</small>
+                        <strong>{formatCommonMetricValue("company_retained_revenue_total", row.retainedRevenue)}</strong>
+                      </span>
+                      <span>
+                        <small>Partner Out</small>
+                        <strong>{formatCommonMetricValue("company_partner_payout_out_total", row.partnerPayoutOut)}</strong>
+                      </span>
+                      <span>
+                        <small>Direct Obl.</small>
+                        <strong>{formatCommonMetricValue("company_direct_reward_obligation_total", row.directObligations)}</strong>
+                      </span>
+                      <span>
+                        <small>Payout Out</small>
+                        <strong>{formatCommonMetricValue("company_actual_payout_out_total", row.actualPayoutOut)}</strong>
+                      </span>
+                      <span>
+                        <small>Fulfillment</small>
+                        <strong>{formatCommonMetricValue("company_product_fulfillment_out_total", row.fulfillmentOut)}</strong>
+                      </span>
+                      <span>
+                        <small>Net Delta</small>
+                        <strong>{formatCommonMetricValue("company_net_treasury_delta_total", row.netTreasuryDelta)}</strong>
+                      </span>
+                      <span>
+                        <small>Pressure / Runway</small>
+                        <strong>{formatCommonMetricValue("payout_inflow_ratio", row.treasuryPressure)} · {formatMonthCountLabel(row.reserveRunwayMonths)}</strong>
+                      </span>
+                    </div>
+                    <p className="compare-financial-tradeoff">
+                      <strong>Tradeoff:</strong> {row.tradeoff}
+                    </p>
                   </article>
                 );
               })}
@@ -948,6 +1187,63 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
+            <h3>Parameter Registry</h3>
+            <p className="muted compare-section-note">
+              Compare-level parameter registry aligned to the Simulation Docs. Each item shows the tested range, the current working default used as the baseline reference, the strongest current recommendation, and the decision owner.
+            </p>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Parameter</th>
+                    <th>Description</th>
+                    <th>Tested Range</th>
+                    <th>Working Default</th>
+                    <th>Current Recommendation</th>
+                    <th>Decision Owner</th>
+                    <th>Classification</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionSupport.parameterRegistry.map((row) => (
+                    <tr key={row.parameterKey}>
+                      <td>
+                        <strong>{row.label}</strong>
+                        <div className="muted" style={{ fontSize: "0.74rem", marginTop: "0.25rem" }}>
+                          <code>{row.symbol}</code>
+                        </div>
+                      </td>
+                      <td>{row.description}</td>
+                      <td>{row.testedRange}</td>
+                      <td>{row.workingDefault}</td>
+                      <td>{row.currentRecommended}</td>
+                      <td>{row.decisionOwner}</td>
+                      <td>
+                        <div className="compare-rich-cell">
+                          <span className={`badge ${getParameterClassificationBadge(row.classification)}`}>
+                            {getParameterClassificationLabel(row.classification)}
+                          </span>
+                          <small>
+                            Guardrail: {
+                              row.guardrailStatus === "allowed"
+                                ? "Allowed"
+                                : row.guardrailStatus === "conditional"
+                                  ? "Assumption"
+                                  : "Locked"
+                            }
+                          </small>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
             <h3>Parameter Range Synthesis</h3>
             <p className="muted compare-section-note">
               Tested values across the selected runs, normalized into ready, caution, and rejected ranges so founder discussion can stay in envelope language instead of single numbers only.
@@ -982,6 +1278,87 @@ export function CompareConsole({
                       <td>{row.rejectedValues ?? "n/a"}</td>
                       <td>{row.testedValues}</td>
                       <td>{row.evidence}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
+            <h3>Founder Question Queue</h3>
+            <p className="muted compare-section-note">
+              Decision queue for founder review. These are the policy and document-closure questions that still need an explicit call before Whitepaper v1 and Tokenflow v1 can be treated as closed.
+            </p>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Founder Question</th>
+                    <th>Status</th>
+                    <th>Why Now</th>
+                    <th>Recommended Direction</th>
+                    <th>Decision Owner</th>
+                    <th>Decision Options</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionSupport.founderQuestionQueue.map((row) => (
+                    <tr key={row.key}>
+                      <td><strong>{row.question}</strong></td>
+                      <td>
+                        <span className={`badge ${getFounderQuestionBadge(row.status)}`}>
+                          {getFounderQuestionStatusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td>{row.whyNow}</td>
+                      <td>{row.recommendedDirection}</td>
+                      <td>{row.decisionOwner}</td>
+                      <td>{row.decisionOptions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : null}
+
+        {filteredRuns.length > 0 ? (
+          <div className="card span-12">
+            <h3>Technical Implementation Plan</h3>
+            <p className="muted compare-section-note">
+              Minimal implementation plan for closing the brief package. Artifact and handoff work stays first; heavyweight engine work should only happen if it becomes a real blocker.
+            </p>
+            <div className="decision-summary">
+              <div className="decision-summary__verdict">
+                <p>{decisionSupport.technicalImplementationPlan.summary}</p>
+              </div>
+            </div>
+            <div className="table-wrap" style={{ marginTop: "1rem" }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Workstream</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Next Action</th>
+                    <th>Why It Matters</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {decisionSupport.technicalImplementationPlan.rows.map((row) => (
+                    <tr key={row.key}>
+                      <td><strong>{row.label}</strong></td>
+                      <td>{row.owner}</td>
+                      <td>
+                        <span className={`badge ${getImplementationPlanBadge(row.status)}`}>
+                          {getImplementationPlanStatusLabel(row.status)}
+                        </span>
+                      </td>
+                      <td>{row.nextAction}</td>
+                      <td>{row.whyItMatters}</td>
                     </tr>
                   ))}
                 </tbody>

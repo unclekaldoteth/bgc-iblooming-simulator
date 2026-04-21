@@ -1,6 +1,7 @@
 import type {
   CompareReportExport,
   CompareReportExportCell,
+  CompareReportExportColumn,
   CompareReportExportRun,
   CompareReportExportTable,
   CompareReportTone
@@ -683,7 +684,7 @@ function measureTableCell(layout: PdfLayout, cell: CompareReportExportCell, widt
 
 function drawTableHeader(
   layout: PdfLayout,
-  runs: CompareReportExportRun[],
+  columns: CompareReportExportColumn[],
   rowLabel: string,
   x: number,
   yTop: number,
@@ -691,8 +692,11 @@ function drawTableHeader(
   cellWidth: number
 ) {
   const padding = 8;
-  const cellHeights = runs.map((run) =>
-    Math.max(26, layout.measureParagraph(run.label, cellWidth - padding * 2 - 12, 8.2, 10) + 14)
+  const cellHeights = columns.map((column) =>
+    Math.max(
+      26,
+      layout.measureParagraph(column.label, cellWidth - padding * 2 - (column.color ? 12 : 0), 8.2, 10) + 14
+    )
   );
   const headerHeight = Math.max(28, ...cellHeights);
 
@@ -705,15 +709,17 @@ function drawTableHeader(
     color: [1, 1, 1]
   });
 
-  runs.forEach((run, index) => {
+  columns.forEach((column, index) => {
     const cellX = x + labelWidth + index * cellWidth;
     layout.drawRect(cellX, yTop, cellWidth, headerHeight, {
       fill: COLORS.heading
     });
-    layout.drawRect(cellX + 8, yTop - 7, 6, 6, {
-      fill: hexToRgb(run.color)
-    });
-    layout.drawParagraph(run.label, cellX + 18, yTop - 15, cellWidth - 26, {
+    if (column.color) {
+      layout.drawRect(cellX + 8, yTop - 7, 6, 6, {
+        fill: hexToRgb(column.color)
+      });
+    }
+    layout.drawParagraph(column.label, column.color ? cellX + 18 : cellX + 8, yTop - 15, column.color ? cellWidth - 26 : cellWidth - 16, {
       font: "F2",
       size: 8.2,
       color: [1, 1, 1],
@@ -730,14 +736,15 @@ function drawComparisonTable(layout: PdfLayout, runs: CompareReportExportRun[], 
 
   const labelWidth = table.rowLabel === "Milestone" ? 180 : 164;
   const minCellWidth = table.rowLabel === "Milestone" ? 112 : 104;
+  const columns = table.columns ?? runs.map((run) => ({ label: run.label, color: run.color }));
   const maxColumns = Math.max(1, Math.floor((layout.contentWidth - labelWidth) / minCellWidth));
-  const groups: Array<{ start: number; end: number; runs: CompareReportExportRun[] }> = [];
+  const groups: Array<{ start: number; end: number; columns: CompareReportExportColumn[] }> = [];
 
-  for (let start = 0; start < runs.length; start += maxColumns) {
+  for (let start = 0; start < columns.length; start += maxColumns) {
     groups.push({
       start,
-      end: Math.min(runs.length, start + maxColumns),
-      runs: runs.slice(start, start + maxColumns)
+      end: Math.min(columns.length, start + maxColumns),
+      columns: columns.slice(start, start + maxColumns)
     });
   }
 
@@ -745,7 +752,7 @@ function drawComparisonTable(layout: PdfLayout, runs: CompareReportExportRun[], 
     if (groups.length > 1) {
       layout.ensureSpace(18);
       layout.drawTextLine(
-        `Scenarios ${group.start + 1}-${group.end} of ${runs.length}`,
+        `${table.columns ? "Columns" : "Scenarios"} ${group.start + 1}-${group.end} of ${columns.length}`,
         layout.marginX,
         layout.cursorY - 2,
         {
@@ -757,7 +764,7 @@ function drawComparisonTable(layout: PdfLayout, runs: CompareReportExportRun[], 
     }
 
     const x = layout.marginX;
-    const cellWidth = (layout.contentWidth - labelWidth) / group.runs.length;
+    const cellWidth = (layout.contentWidth - labelWidth) / group.columns.length;
     let needsHeader = true;
 
     table.rows.forEach((row, rowIndex) => {
@@ -772,7 +779,7 @@ function drawComparisonTable(layout: PdfLayout, runs: CompareReportExportRun[], 
       }
 
       if (needsHeader) {
-        drawTableHeader(layout, group.runs, table.rowLabel, x, layout.cursorY, labelWidth, cellWidth);
+        drawTableHeader(layout, group.columns, table.rowLabel, x, layout.cursorY, labelWidth, cellWidth);
         needsHeader = false;
       }
 
