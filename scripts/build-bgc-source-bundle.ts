@@ -41,6 +41,55 @@ const NUMERIC_TOP_UP_FIELDS = [
   "grossMarginUsd"
 ] as const;
 
+const TOP_UP_FIELD_DISTRIBUTION_FALLBACKS: Record<NumericTopUpField, NumericTopUpField[]> = {
+  pcVolume: ["recognizedRevenueUsd", "spRewardBasis", "cashoutUsd", "globalRewardUsd", "grossMarginUsd"],
+  spRewardBasis: ["globalRewardUsd", "cashoutUsd", "recognizedRevenueUsd", "pcVolume", "grossMarginUsd"],
+  globalRewardUsd: ["cashoutUsd", "spRewardBasis", "recognizedRevenueUsd", "pcVolume", "grossMarginUsd"],
+  poolRewardUsd: ["globalRewardUsd", "spRewardBasis", "cashoutUsd", "recognizedRevenueUsd", "pcVolume"],
+  cashoutUsd: ["globalRewardUsd", "spRewardBasis", "recognizedRevenueUsd", "pcVolume", "grossMarginUsd"],
+  sinkSpendUsd: ["recognizedRevenueUsd", "pcVolume", "spRewardBasis", "cashoutUsd", "globalRewardUsd"],
+  recognizedRevenueUsd: ["pcVolume", "grossMarginUsd", "spRewardBasis", "cashoutUsd", "globalRewardUsd"],
+  grossMarginUsd: ["recognizedRevenueUsd", "pcVolume", "spRewardBasis", "cashoutUsd", "globalRewardUsd"]
+};
+
+type BgcJoinRule = {
+  entryFeeUsd: number;
+  pcVolume: number;
+  spRewardBasis: number;
+};
+
+const BGC_JOIN_RULES_BY_TIER: Record<string, BgcJoinRule> = {
+  pathfinder: {
+    entryFeeUsd: 100,
+    pcVolume: 10_000,
+    spRewardBasis: 70
+  },
+  voyager: {
+    entryFeeUsd: 500,
+    pcVolume: 50_000,
+    spRewardBasis: 350
+  },
+  explorer: {
+    entryFeeUsd: 1_725,
+    pcVolume: 172_500,
+    spRewardBasis: 1_207
+  },
+  pioneer: {
+    entryFeeUsd: 2_875,
+    pcVolume: 287_500,
+    spRewardBasis: 2_012
+  },
+  special: {
+    entryFeeUsd: 11_500,
+    pcVolume: 1_150_000,
+    spRewardBasis: 8_050
+  }
+};
+
+const BGC_JOIN_RULES_BY_ENTRY_FEE = new Map<number, BgcJoinRule>(
+  Object.values(BGC_JOIN_RULES_BY_TIER).map((rule) => [rule.entryFeeUsd, rule])
+);
+
 type OutputHeader = (typeof OUTPUT_HEADERS)[number];
 
 type CanonicalFact = {
@@ -139,6 +188,8 @@ type NameResolver = {
 };
 
 type NumericTopUpField = (typeof NUMERIC_TOP_UP_FIELDS)[number];
+
+type NumericTopUpValueMap = Record<NumericTopUpField, number>;
 
 function parseArgs(argv: string[]) {
   const args = [...argv];
@@ -296,6 +347,17 @@ function normalizeTokenKey(value: string) {
     .join(" ");
 }
 
+function resolveBgcJoinRule(entryFeeUsd: number, memberTier: string) {
+  const byEntryFee = BGC_JOIN_RULES_BY_ENTRY_FEE.get(entryFeeUsd);
+
+  if (byEntryFee) {
+    return byEntryFee;
+  }
+
+  const normalizedTier = normalizeTier(memberTier);
+  return normalizedTier ? (BGC_JOIN_RULES_BY_TIER[normalizedTier] ?? null) : null;
+}
+
 function stableHash(input: string) {
   let hash = 0;
 
@@ -354,6 +416,60 @@ function readNumericFactField(fact: CanonicalFact, field: NumericTopUpField) {
 
 function readMetricValue(metric: ParamsMonthlyMetric, field: NumericTopUpField) {
   return metric[field];
+}
+
+function buildTemplateTotalsByField(monthTemplateRows: ParamsTemplateRow[]): NumericTopUpValueMap {
+  return Object.fromEntries(
+    NUMERIC_TOP_UP_FIELDS.map((field) => [
+      field,
+      roundNumber(monthTemplateRows.reduce((sum, row) => sum + row[field], 0))
+    ])
+  ) as NumericTopUpValueMap;
+}
+
+function resolveTopUpDistributionBasisField(
+  field: NumericTopUpField,
+  templateTotals: NumericTopUpValueMap
+) {
+  const candidateFields = [field, ...TOP_UP_FIELD_DISTRIBUTION_FALLBACKS[field]];
+
+  for (const candidateField of candidateFields) {
+    if (templateTotals[candidateField] > 0) {
+      return candidateField;
+    }
+  }
+
+  return null;
+}
+
+function allocateGapAcrossRows(
+  totalGap: number,
+  monthTemplateRows: ParamsTemplateRow[],
+  basisField: NumericTopUpField | null
+) {
+  if (monthTemplateRows.length === 0 || totalGap <= 0) {
+    return [] as number[];
+  }
+
+  const weights =
+    basisField === null
+      ? monthTemplateRows.map(() => 1)
+      : monthTemplateRows.map((row) => Math.max(0, row[basisField]));
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0);
+  const normalizedWeights =
+    totalWeight > 0 ? weights.map((value) => value / totalWeight) : monthTemplateRows.map(() => 1 / monthTemplateRows.length);
+
+  let remainder = roundNumber(totalGap);
+
+  return monthTemplateRows.map((_, index) => {
+    if (index === monthTemplateRows.length - 1) {
+      return roundNumber(remainder);
+    }
+
+    const allocation = roundNumber(totalGap * normalizedWeights[index]);
+    remainder = roundNumber(remainder - allocation);
+    return allocation;
+  });
 }
 
 function parsePeriodFromUsDate(value: string) {
@@ -527,6 +643,35 @@ function mergeExtraJson(
   }
 
   return mergeJsonValues(current, incoming) as Record<string, unknown>;
+}
+
+function ensureExtraJsonRecord(
+  extraJson: Record<string, unknown> | null,
+  key: string
+): Record<string, unknown> {
+  const target =
+    extraJson && typeof extraJson[key] === "object" && extraJson[key] !== null && !Array.isArray(extraJson[key])
+      ? (extraJson[key] as Record<string, unknown>)
+      : {};
+
+  if (!extraJson) {
+    throw new Error(`extraJson must exist before ensuring nested record ${key}.`);
+  }
+
+  extraJson[key] = target;
+  return target;
+}
+
+function addExtraJsonNumericValue(
+  fact: CanonicalFact,
+  key: string,
+  nestedKey: string,
+  amount: number
+) {
+  fact.extraJson ??= {};
+  const target = ensureExtraJsonRecord(fact.extraJson, key);
+  const currentValue = typeof target[nestedKey] === "number" ? target[nestedKey] : 0;
+  target[nestedKey] = roundNumber(currentValue + amount);
 }
 
 function upsertFact(
@@ -959,7 +1104,6 @@ function addGlobal2024Facts(facts: FactMap, rows: string[][]) {
         {
           memberTier: normalizedTier,
           groupKey: "bgc-global-2024",
-          spRewardBasis: roundNumber(bonusPerMember * 10),
           globalRewardUsd: bonusPerMember,
           activeMember: true,
           isAffiliate: true,
@@ -1013,14 +1157,13 @@ function addGlobal2025Facts(facts: FactMap, rows: string[][]) {
           sourceSystem: "bgc"
         },
         {
-          memberTier: currentLevel,
-          spRewardBasis: roundNumber(shareOfPrice * 10),
           globalRewardUsd: shareOfPrice,
           activeMember: true,
           isAffiliate: true,
           extraJson: {
             source_files: [RAW_FILE_NAMES.global2025],
-            source_categories: ["global_profit_2025_first_half_distribution"]
+            source_categories: ["global_profit_2025_first_half_distribution"],
+            distribution_level: normalizeTier(currentLevel)
           }
         }
       );
@@ -1065,11 +1208,22 @@ function addNewlyJoinedFacts(facts: FactMap, rows: RawNewlyJoinedRow[]) {
       continue;
     }
 
+    const periodKey = ensurePeriodKey(row.month.trim(), `newly joined month ${row.userNo}`);
+    const entryFeeUsd = parseNumber(row.entryValueUsd, `new join value ${row.userNo}`);
+    const joinRule = resolveBgcJoinRule(entryFeeUsd, row.levelName);
+
     const extraJson = {
       source_files: [RAW_FILE_NAMES.newlyJoined],
       source_categories: ["affiliate_newly_joined"],
       ...(row.createdAt.trim() ? { created_at: row.createdAt.trim() } : {}),
-      join_entry_value_usd: parseNumber(row.entryValueUsd, `new join value ${row.userNo}`),
+      join_entry_value_usd: entryFeeUsd,
+      ...(joinRule
+        ? {
+            recognized_revenue_basis: {
+              entry_fee_usd: joinRule.entryFeeUsd
+            }
+          }
+        : {}),
       ...(row.totalEntryFeePerMonthUsd.trim()
         ? {
             monthly_entry_fee_total_usd: parseNumber(
@@ -1091,15 +1245,17 @@ function addNewlyJoinedFacts(facts: FactMap, rows: RawNewlyJoinedRow[]) {
     upsertFact(
       facts,
       {
-        periodKey: ensurePeriodKey(row.month.trim(), `newly joined month ${row.userNo}`),
+        periodKey,
         memberKey: memberId,
         sourceSystem: "bgc"
       },
       {
         memberTier: row.levelName,
-        recognizedRevenueUsd: parseNumber(row.entryValueUsd, `new join value ${row.userNo}`),
+        pcVolume: joinRule?.pcVolume ?? 0,
+        spRewardBasis: joinRule?.spRewardBasis ?? 0,
+        recognizedRevenueUsd: entryFeeUsd,
         activeMember: true,
-        memberJoinPeriod: ensurePeriodKey(row.month.trim(), `newly joined period ${row.userNo}`),
+        memberJoinPeriod: periodKey,
         isAffiliate: true,
         extraJson
       }
@@ -1175,6 +1331,11 @@ function addCpFacts(facts: FactMap, rows: RawCpRow[], resolver: NameResolver) {
       syntheticKeys += 1;
     }
 
+    const priceUsd = roundNumber(parseNumber(row.priceUsd, `CP price ${row.userName}`), 2);
+    const marginUsd = roundNumber(parseNumber(row.iBloomingProfit, `CP margin ${row.userName}`), 2);
+    const ibPlatformRevenueUsd = roundNumber(priceUsd * 0.3, 2);
+    const recognizedRevenueUsd = ibPlatformRevenueUsd > 0 ? ibPlatformRevenueUsd : marginUsd;
+
     upsertFact(
       facts,
       {
@@ -1183,18 +1344,43 @@ function addCpFacts(facts: FactMap, rows: RawCpRow[], resolver: NameResolver) {
         sourceSystem: "iblooming"
       },
       {
-        memberTier: row.level,
-        sinkSpendUsd: parseNumber(row.priceUsd, `CP price ${row.userName}`),
-        recognizedRevenueUsd: parseNumber(row.priceUsd, `CP revenue ${row.userName}`),
-        grossMarginUsd: parseNumber(row.iBloomingProfit, `CP margin ${row.userName}`),
+        sinkSpendUsd: priceUsd,
+        recognizedRevenueUsd,
+        grossMarginUsd: recognizedRevenueUsd,
         activeMember: true,
         extraJson: {
           source_files: [RAW_FILE_NAMES.cpVideos],
           source_categories: ["cp_video_sale"],
-          matched_to_bgc_id: Boolean(resolvedMemberId)
+          matched_to_bgc_id: Boolean(resolvedMemberId),
+          source_profile_bgc_level: normalizeTier(row.level)
         }
       }
     );
+
+    const fact = facts.get(makeFactKey({
+      periodKey: parsePeriodFromIsoDateTime(row.purchaseDate),
+      memberKey,
+      sourceSystem: "iblooming"
+    }));
+
+    if (fact) {
+      addExtraJsonNumericValue(fact, "sink_breakdown_usd", "PC_SPEND", priceUsd);
+      addExtraJsonNumericValue(fact, "accountability_checks", "sink_total_usd", priceUsd);
+      fact.extraJson ??= {};
+      const recognizedRevenueBasis = ensureExtraJsonRecord(fact.extraJson, "recognized_revenue_basis");
+      const grossMarginBasis = ensureExtraJsonRecord(fact.extraJson, "gross_margin_basis");
+      const totalGrossSaleUsd = roundNumber(fact.sinkSpendUsd);
+      const totalCpUserShareUsd = roundNumber(totalGrossSaleUsd * 0.7);
+      const totalPlatformRevenueUsd = roundNumber(totalGrossSaleUsd * 0.3);
+
+      fact.recognizedRevenueUsd = totalPlatformRevenueUsd;
+      fact.grossMarginUsd = totalPlatformRevenueUsd;
+      recognizedRevenueBasis.gross_sale_usd = totalGrossSaleUsd;
+      recognizedRevenueBasis.cp_user_share_usd = totalCpUserShareUsd;
+      recognizedRevenueBasis.ib_platform_revenue_usd = totalPlatformRevenueUsd;
+      recognizedRevenueBasis.platform_take_rate_pct = 30;
+      grossMarginBasis.gross_margin_usd = totalPlatformRevenueUsd;
+    }
   }
 
   return {
@@ -1218,11 +1404,13 @@ function addIMatrixFacts(facts: FactMap, rows: string[][]) {
       continue;
     }
 
-    const totalAmount = parseNumber(row[2] ?? "", `iMatrix total ${currentProduct} ${firstCell}`);
+    const totalAmount = roundNumber(parseNumber(row[2] ?? "", `iMatrix total ${currentProduct} ${firstCell}`), 2);
     const globalPoolAmount = parseNumber(
       row[6] ?? "",
       `iMatrix global pool ${currentProduct} ${firstCell}`
     );
+    const cpUserShareUsd = roundNumber(totalAmount * 0.7, 2);
+    const ibPlatformRevenueUsd = roundNumber(totalAmount * 0.3, 2);
 
     if (totalAmount <= 0 && globalPoolAmount <= 0) {
       continue;
@@ -1238,16 +1426,38 @@ function addIMatrixFacts(facts: FactMap, rows: string[][]) {
       {
         groupKey: "imatrix-aggregate",
         sinkSpendUsd: totalAmount,
-        spRewardBasis: roundNumber(globalPoolAmount * 10),
         poolRewardUsd: globalPoolAmount,
-        recognizedRevenueUsd: totalAmount,
+        recognizedRevenueUsd: ibPlatformRevenueUsd,
+        grossMarginUsd: ibPlatformRevenueUsd,
         extraJson: {
           source_files: [RAW_FILE_NAMES.imatrix],
           source_categories: ["imatrix_product_aggregate"],
-          imatrix_product_lines: [currentProduct]
+          imatrix_product_lines: [currentProduct],
+          recognized_revenue_basis: {
+            gross_sale_usd: totalAmount,
+            cp_user_share_usd: cpUserShareUsd,
+            ib_platform_revenue_usd: ibPlatformRevenueUsd,
+            platform_take_rate_pct: 30
+          },
+          gross_margin_basis: {
+            gross_margin_usd: ibPlatformRevenueUsd
+          }
         }
       }
     );
+
+    const fact = facts.get(
+      makeFactKey({
+        periodKey: monthNameToPeriodKey(2025, firstCell),
+        memberKey: `IMATRIX-${currentProduct.replace(/[^A-Za-z0-9]+/g, "-").toUpperCase()}`,
+        sourceSystem: "iblooming"
+      })
+    );
+
+    if (fact) {
+      addExtraJsonNumericValue(fact, "sink_breakdown_usd", "PC_SPEND", totalAmount);
+      addExtraJsonNumericValue(fact, "accountability_checks", "sink_total_usd", totalAmount);
+    }
   }
 }
 
@@ -1314,27 +1524,31 @@ function addParamsTopUpFacts(
       continue;
     }
 
-    const templateTotals = Object.fromEntries(
+    const templateTotals = buildTemplateTotalsByField(monthTemplateRows);
+    const distributionBasisByField = Object.fromEntries(
+      NUMERIC_TOP_UP_FIELDS.map((field) => [field, resolveTopUpDistributionBasisField(field, templateTotals)])
+    ) as Record<NumericTopUpField, NumericTopUpField | null>;
+    const allocationsByField = Object.fromEntries(
       NUMERIC_TOP_UP_FIELDS.map((field) => [
         field,
-        roundNumber(monthTemplateRows.reduce((sum, row) => sum + row[field], 0))
+        allocateGapAcrossRows(gaps[field], monthTemplateRows, distributionBasisByField[field])
       ])
-    ) as Record<NumericTopUpField, number>;
+    ) as Record<NumericTopUpField, number[]>;
 
-    for (const row of monthTemplateRows) {
+    for (const [rowIndex, row] of monthTemplateRows.entries()) {
       const scaledMetrics = Object.fromEntries(
-        NUMERIC_TOP_UP_FIELDS.map((field) => {
-          const templateTotal = templateTotals[field];
-          const value =
-            templateTotal > 0 ? roundNumber((row[field] / templateTotal) * gaps[field]) : 0;
-
-          return [field, value];
-        })
-      ) as Record<NumericTopUpField, number>;
+        NUMERIC_TOP_UP_FIELDS.map((field) => [field, allocationsByField[field][rowIndex] ?? 0])
+      ) as NumericTopUpValueMap;
 
       if (!Object.values(scaledMetrics).some((value) => value > 0)) {
         continue;
       }
+
+      const topUpDistributionBasis = Object.fromEntries(
+        Object.entries(distributionBasisByField)
+          .filter(([field, basisField]) => basisField !== null && basisField !== field)
+          .map(([field, basisField]) => [field, basisField])
+      );
 
       upsertFact(
         facts,
@@ -1367,7 +1581,9 @@ function addParamsTopUpFacts(
               : ["params_monthly_topup"],
             top_up_strategy: "monthly_gap_against_existing_bundle",
             params_period_key: periodKey,
-            data_agg_period_key: dataAggMetrics.has(periodKey) ? periodKey : undefined
+            data_agg_period_key: dataAggMetrics.has(periodKey) ? periodKey : undefined,
+            top_up_distribution_basis_by_field:
+              Object.keys(topUpDistributionBasis).length > 0 ? topUpDistributionBasis : undefined
           }
         }
       );
@@ -1379,7 +1595,7 @@ function finalizeFacts(facts: FactMap) {
   const rows = [...facts.values()];
   const earliestPeriodByMember = new Map<string, string>();
   const sourceSystemsByMember = new Map<string, Set<string>>();
-  const preferredTierByMember = new Map<string, string>();
+  const preferredTierByMemberSource = new Map<string, string>();
   const affiliateMembers = new Set<string>();
 
   for (const row of rows) {
@@ -1396,9 +1612,10 @@ function finalizeFacts(facts: FactMap) {
     sourceSystemsByMember.set(row.memberKey, sourceSystems);
 
     if (row.memberTier) {
-      preferredTierByMember.set(
-        row.memberKey,
-        preferTier(preferredTierByMember.get(row.memberKey) ?? "", row.memberTier)
+      const memberSourceKey = `${row.memberKey}::${row.sourceSystem}`;
+      preferredTierByMemberSource.set(
+        memberSourceKey,
+        preferTier(preferredTierByMemberSource.get(memberSourceKey) ?? "", row.memberTier)
       );
     }
 
@@ -1415,7 +1632,8 @@ function finalizeFacts(facts: FactMap) {
 
   for (const row of rows) {
     if (!row.memberTier) {
-      row.memberTier = preferredTierByMember.get(row.memberKey) ?? "";
+      row.memberTier =
+        preferredTierByMemberSource.get(`${row.memberKey}::${row.sourceSystem}`) ?? "";
     }
 
     if (row.activeMember) {

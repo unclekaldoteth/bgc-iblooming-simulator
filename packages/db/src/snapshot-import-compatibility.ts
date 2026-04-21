@@ -612,6 +612,138 @@ function getActiveRoleTags(metadata: Record<string, unknown> | null, rowRef: str
   return parseMetadataStringArray(value, "active_roles", rowRef);
 }
 
+function getSourceCategories(metadata: Record<string, unknown> | null, rowRef: string) {
+  if (!metadata) {
+    return [] as string[];
+  }
+
+  const value = getMetadataFieldValue(metadata, "source_categories");
+
+  if (typeof value === "undefined") {
+    return [] as string[];
+  }
+
+  return parseMetadataStringArray(value, "source_categories", rowRef);
+}
+
+function getRowSemantics(metadata: Record<string, unknown> | null, rowRef: string) {
+  if (!metadata) {
+    return "compatibility_member_month_fact";
+  }
+
+  const value = getMetadataFieldValue(metadata, "row_semantics");
+
+  if (typeof value === "undefined") {
+    return "compatibility_member_month_fact";
+  }
+
+  return parseMetadataString(value, "row_semantics", rowRef);
+}
+
+function isHybridMonthlyOverrideRow(row: ParsedCompatibilityRow) {
+  return getRowSemantics(row.metadata, row.rowRef) === "hybrid_monthly_override_fact";
+}
+
+function validateHybridMonthlyOverrideRow(row: ParsedCompatibilityRow) {
+  const sourceSystem = normalizeSourceSystemCode(row.fact.sourceSystem);
+  const memberTier = normalizeMemberTier(row.fact.memberTier);
+  const sourceCategories = getSourceCategories(row.metadata, row.rowRef);
+  const recognizedRevenueBasis = row.metadata
+    ? getOptionalMetadataRecord(row.metadata, "recognized_revenue_basis", row.rowRef)
+    : null;
+  const grossMarginBasis = row.metadata
+    ? getOptionalMetadataRecord(row.metadata, "gross_margin_basis", row.rowRef)
+    : null;
+
+  if (sourceSystem !== "OTHER") {
+    throw new Error(`hybrid_monthly_override_fact rows must use source_system=other (${row.rowRef}).`);
+  }
+
+  if (memberTier !== null) {
+    throw new Error(`hybrid_monthly_override_fact rows must leave member_tier blank (${row.rowRef}).`);
+  }
+
+  if (row.fact.groupKey !== "DATA_AGG_OVERRIDE") {
+    throw new Error(`hybrid_monthly_override_fact rows must use group_key=DATA_AGG_OVERRIDE (${row.rowRef}).`);
+  }
+
+  if (row.fact.memberKey !== `DATA_AGG_OVERRIDE::${row.fact.periodKey}`) {
+    throw new Error(
+      `hybrid_monthly_override_fact rows must use member_key DATA_AGG_OVERRIDE::${row.fact.periodKey} (${row.rowRef}).`
+    );
+  }
+
+  if (row.fact.activeMember) {
+    throw new Error(`hybrid_monthly_override_fact rows must set active_member=false (${row.rowRef}).`);
+  }
+
+  if (row.memberJoinPeriod !== null) {
+    throw new Error(`hybrid_monthly_override_fact rows must leave member_join_period blank (${row.rowRef}).`);
+  }
+
+  if (row.isAffiliate !== null || row.crossAppActive !== null) {
+    throw new Error(
+      `hybrid_monthly_override_fact rows must leave is_affiliate and cross_app_active blank (${row.rowRef}).`
+    );
+  }
+
+  if (!sourceCategories.includes("data_agg_monthly_override")) {
+    throw new Error(
+      `hybrid_monthly_override_fact rows must include source_categories.data_agg_monthly_override (${row.rowRef}).`
+    );
+  }
+
+  if (row.recognizedRevenueUsd !== null) {
+    if (!recognizedRevenueBasis) {
+      throw new Error(
+        `hybrid_monthly_override_fact rows with recognized revenue must include recognized_revenue_basis.hybrid_monthly_override_usd (${row.rowRef}).`
+      );
+    }
+
+    const expectedRecognizedRevenueUsd = getOptionalMetadataNumber(
+      recognizedRevenueBasis,
+      "hybrid_monthly_override_usd",
+      row.rowRef
+    );
+
+    if (expectedRecognizedRevenueUsd === null) {
+      throw new Error(
+        `recognized_revenue_basis.hybrid_monthly_override_usd is required for hybrid_monthly_override_fact rows (${row.rowRef}).`
+      );
+    }
+
+    assertCloseEnough(
+      expectedRecognizedRevenueUsd,
+      row.recognizedRevenueUsd,
+      "recognized_revenue_basis.hybrid_monthly_override_usd",
+      row.rowRef
+    );
+  }
+
+  if (row.grossMarginUsd !== null) {
+    if (!grossMarginBasis) {
+      throw new Error(
+        `hybrid_monthly_override_fact rows with gross margin must include gross_margin_basis.gross_margin_usd (${row.rowRef}).`
+      );
+    }
+
+    const expectedGrossMarginUsd = getOptionalMetadataNumber(grossMarginBasis, "gross_margin_usd", row.rowRef);
+
+    if (expectedGrossMarginUsd === null) {
+      throw new Error(
+        `gross_margin_basis.gross_margin_usd is required for hybrid_monthly_override_fact rows (${row.rowRef}).`
+      );
+    }
+
+    assertCloseEnough(
+      expectedGrossMarginUsd,
+      row.grossMarginUsd,
+      "gross_margin_basis.gross_margin_usd",
+      row.rowRef
+    );
+  }
+}
+
 function getActiveQualificationTags(metadata: Record<string, unknown> | null, rowRef: string) {
   if (!metadata) {
     return [] as string[];
@@ -737,6 +869,9 @@ function normalizeCompatibilityMetadataForValidation(
     "recognized_revenue_usd",
     ["recognizedRevenueUsd"]
   );
+  const sourceCategories = Array.isArray(normalized.source_categories)
+    ? normalized.source_categories.filter((value): value is string => typeof value === "string")
+    : [];
 
   if (!("recognized_revenue_basis" in normalized)) {
     const normalizedSourceSystem = normalizeSourceSystemCode(fact.sourceSystem);
@@ -766,6 +901,32 @@ function normalizeCompatibilityMetadataForValidation(
         platform_take_rate_pct: 30
       };
     }
+  }
+
+  if (!("sink_breakdown_usd" in normalized) && fact.sinkSpendUsd > 0) {
+    const shouldDerivePcSpend =
+      sourceCategories.includes("cp_video_sale") ||
+      sourceCategories.includes("imatrix_product_aggregate");
+
+    if (shouldDerivePcSpend) {
+      normalized.sink_breakdown_usd = {
+        PC_SPEND: round2(fact.sinkSpendUsd)
+      };
+    }
+  }
+
+  const accountabilityChecks = getOptionalMetadataRecord(
+    normalized,
+    "accountability_checks",
+    "row:metadata",
+    ["accountabilityChecks"]
+  );
+
+  if (fact.sinkSpendUsd > 0) {
+    normalized.accountability_checks = {
+      ...(accountabilityChecks ?? {}),
+      sink_total_usd: round2(fact.sinkSpendUsd)
+    };
   }
 
   if (!("pool_funding_basis" in normalized)) {
@@ -1210,8 +1371,7 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       throw new Error(`recognized_revenue_basis.gross_sale_usd is invalid for bgc rows (${row.rowRef}).`);
     }
 
-    const requiresEntryFeeBasis =
-      row.fact.pcVolume > 0 || row.fact.spRewardBasis > 0 || row.recognizedRevenueUsd !== null;
+    const requiresEntryFeeBasis = row.fact.pcVolume > 0 || row.recognizedRevenueUsd !== null;
 
     if (requiresEntryFeeBasis && !recognizedRevenueBasis) {
       throw new Error(
@@ -1662,8 +1822,13 @@ function validateCompatibilityRowMetadata(
   if ("row_semantics" in metadata) {
     const rowSemantics = parseMetadataString(metadata.row_semantics, "row_semantics", rowRef);
 
-    if (rowSemantics !== "compatibility_member_month_fact") {
-      throw new Error(`row_semantics must equal "compatibility_member_month_fact" in extra_json (${rowRef}).`);
+    if (
+      rowSemantics !== "compatibility_member_month_fact" &&
+      rowSemantics !== "hybrid_monthly_override_fact"
+    ) {
+      throw new Error(
+        `row_semantics must equal "compatibility_member_month_fact" or "hybrid_monthly_override_fact" in extra_json (${rowRef}).`
+      );
     }
   }
 
@@ -1850,9 +2015,13 @@ function validateCompatibilityRowMetadata(
   }
 
   if (mode === "understanding_doc_strict") {
-    validateUnderstandingDocRowFormula(row);
-    validateCountAwareCompatibilityContract(row);
-    validateCanonicalOnlyRuleGates(row);
+    if (isHybridMonthlyOverrideRow(row)) {
+      validateHybridMonthlyOverrideRow(row);
+    } else {
+      validateUnderstandingDocRowFormula(row);
+      validateCountAwareCompatibilityContract(row);
+      validateCanonicalOnlyRuleGates(row);
+    }
   }
   return issues;
 }
@@ -1935,6 +2104,10 @@ function validateCompatibilityMemberHistory(rows: ParsedCompatibilityRow[]) {
   const bgcRankTimeline = buildMemberBgcRankTimeline(rows);
 
   for (const row of rows) {
+    if (isHybridMonthlyOverrideRow(row)) {
+      continue;
+    }
+
     const memberSourceKey = `${row.fact.memberKey}::${normalizeSourceSystemCode(row.fact.sourceSystem)}`;
     const memberSourceRows = rowsByMemberSource.get(memberSourceKey) ?? [];
     memberSourceRows.push(row);
@@ -2289,6 +2462,7 @@ function buildParsedCompatibilityRowFromFact(
     poolBasisByPayoutKey,
     canonicalSnapshotId
   );
+  fact.metadataJson = metadata as SnapshotMemberMonthFactInput["metadataJson"];
   const row: ParsedCompatibilityRow = {
     rowRef,
     fact,
@@ -2490,16 +2664,12 @@ export function parseCompatibilityCsvSnapshotText(
         ...parsedFact,
         metadataJson: metadataJson as SnapshotMemberMonthFactInput["metadataJson"]
       };
-      const row: ParsedCompatibilityRow = {
-        rowRef,
+      const row = buildParsedCompatibilityRowFromFact(
         fact,
-        metadata: isRecord(metadataJson) ? metadataJson : null,
-        recognizedRevenueUsd,
-        grossMarginUsd,
-        memberJoinPeriod,
-        isAffiliate,
-        crossAppActive
-      };
+        index + 1,
+        new Map(),
+        null
+      );
 
       issues.push(...validateCompatibilityRowMetadata(row, mode));
 

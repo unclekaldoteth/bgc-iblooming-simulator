@@ -100,6 +100,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function readNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function almostEqual(left: number, right: number, epsilon = 0.01) {
+  return Math.abs(left - right) <= epsilon;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const text = await readFile(args.inputPath, "utf8");
@@ -110,6 +127,15 @@ async function main() {
   );
   const sourceFilesFound = new Set<string>();
   const sourceCategoriesFound = new Set<string>();
+  const pcSpendMappingFailures: string[] = [];
+  const dataAggPeriodTotals = new Map<
+    string,
+    {
+      pcVolume: number;
+      cashoutUsd: number;
+      rowCount: number;
+    }
+  >();
 
   for (const record of records) {
     const parsed = snapshotImportCsvRowSchema.parse(record);
@@ -140,19 +166,77 @@ async function main() {
         sourceCategoriesFound.add(sourceCategory);
       }
     }
+
+    if (sourceCategories.includes("data_agg_monthly_override")) {
+      const periodTotals = dataAggPeriodTotals.get(parsed.period_key) ?? {
+        pcVolume: 0,
+        cashoutUsd: 0,
+        rowCount: 0
+      };
+      periodTotals.pcVolume += readNumber(parsed.pc_volume) ?? 0;
+      periodTotals.cashoutUsd += readNumber(parsed.cashout_usd) ?? 0;
+      periodTotals.rowCount += 1;
+      dataAggPeriodTotals.set(parsed.period_key, periodTotals);
+    }
+
+    const sinkSpendUsd = readNumber(parsed.sink_spend_usd) ?? 0;
+    const requiresPcSpendBreakdown =
+      sinkSpendUsd > 0 &&
+      sourceCategories.some(
+        (sourceCategory) =>
+          sourceCategory === "cp_video_sale" || sourceCategory === "imatrix_product_aggregate"
+      );
+
+    if (requiresPcSpendBreakdown) {
+      const sinkBreakdown = isRecord(extraJson.sink_breakdown_usd) ? extraJson.sink_breakdown_usd : null;
+      const pcSpendUsd = sinkBreakdown ? readNumber(sinkBreakdown.PC_SPEND) : null;
+
+      if (pcSpendUsd === null || !almostEqual(pcSpendUsd, sinkSpendUsd)) {
+        pcSpendMappingFailures.push(
+          `${parsed.period_key}/${parsed.member_key}/${parsed.source_system}`
+        );
+      }
+    }
   }
 
   const missingFiles = EXPECTED_SOURCE_FILES.filter((value) => !sourceFilesFound.has(value));
-  const missingCategories = EXPECTED_SOURCE_CATEGORIES.filter(
-    (value) => !sourceCategoriesFound.has(value)
-  );
+  const isAcceptedHybridArtifact = sourceCategoriesFound.has("accepted_hybrid_monthly_override");
+  const missingCategories = EXPECTED_SOURCE_CATEGORIES.filter((value) => {
+    if (value === "params_monthly_topup" && isAcceptedHybridArtifact) {
+      return false;
+    }
 
-  if (missingFiles.length > 0 || missingCategories.length > 0) {
+    return !sourceCategoriesFound.has(value);
+  });
+  const missingAcceptedHybridCategory =
+    isAcceptedHybridArtifact || !args.inputPath.includes("hybrid-accepted")
+      ? null
+      : "accepted_hybrid_monthly_override";
+  const dataAggCoverageFailures = [...dataAggPeriodTotals.entries()]
+    .filter(([, totals]) => totals.cashoutUsd > 0 && totals.pcVolume <= 0)
+    .map(([periodKey]) => periodKey);
+
+  if (
+    missingFiles.length > 0 ||
+    missingCategories.length > 0 ||
+    missingAcceptedHybridCategory !== null ||
+    pcSpendMappingFailures.length > 0 ||
+    dataAggCoverageFailures.length > 0
+  ) {
     throw new Error(
       [
         missingFiles.length > 0 ? `Missing source files: ${missingFiles.join(", ")}` : null,
         missingCategories.length > 0
           ? `Missing source categories: ${missingCategories.join(", ")}`
+          : null,
+        missingAcceptedHybridCategory
+          ? `Missing source categories: ${missingAcceptedHybridCategory}`
+          : null,
+        pcSpendMappingFailures.length > 0
+          ? `Missing or mismatched sink_breakdown_usd.PC_SPEND on rows: ${pcSpendMappingFailures.slice(0, 10).join(", ")}${pcSpendMappingFailures.length > 10 ? " ..." : ""}`
+          : null,
+        dataAggCoverageFailures.length > 0
+          ? `DATA_AGG override periods have cashout but zero pc_volume: ${dataAggCoverageFailures.join(", ")}`
           : null
       ]
         .filter(Boolean)

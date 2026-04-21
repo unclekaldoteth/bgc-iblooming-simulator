@@ -111,3 +111,57 @@ test("legacy_compatibility mode skips strict history checks", () => {
 
   assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
 });
+
+test("iblooming sink-spend source rows derive PC_SPEND breakdown and persist it on facts", () => {
+  const csvText = [
+    "period_key,member_key,source_system,member_tier,group_key,pc_volume,sp_reward_basis,global_reward_usd,pool_reward_usd,cashout_usd,sink_spend_usd,active_member,recognized_revenue_usd,gross_margin_usd,member_join_period,is_affiliate,cross_app_active,extra_json",
+    '2025-04,B123,iblooming,CP,,0,0,0,0,0,99.5,true,29.85,29.85,2025-04,true,false,"{""source_categories"":[""cp_video_sale""]}"'
+  ].join("\n");
+
+  const result = parseCompatibilityCsvSnapshotText(csvText, {
+    mode: "understanding_doc_strict"
+  });
+
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.equal(
+    result.issues.some(
+      (issue) =>
+        issue.issueType === "missing_rule_tagged_breakdown" &&
+        issue.message.includes("sink_breakdown_usd")
+    ),
+    false
+  );
+
+  const metadata = result.facts[0]?.metadataJson as Record<string, unknown> | null;
+  assert.ok(metadata);
+  assert.deepEqual(metadata?.sink_breakdown_usd, { PC_SPEND: 99.5 });
+  assert.deepEqual(metadata?.accountability_checks, { sink_total_usd: 99.5 });
+});
+
+test("hybrid monthly override rows pass strict validation when shaped as accepted aggregate facts", () => {
+  const csvText = [
+    "period_key,member_key,source_system,member_tier,group_key,pc_volume,sp_reward_basis,global_reward_usd,pool_reward_usd,cashout_usd,sink_spend_usd,active_member,recognized_revenue_usd,gross_margin_usd,member_join_period,is_affiliate,cross_app_active,extra_json",
+    '2025-04,DATA_AGG_OVERRIDE::2025-04,other,,DATA_AGG_OVERRIDE,22887500,178920,30680.14,0,30680.14,0,false,31093.17,80089.20,,,,\"{\"\"row_semantics\"\":\"\"hybrid_monthly_override_fact\"\",\"\"source_categories\"\":[\"\"data_agg_monthly_override\"\",\"\"accepted_hybrid_monthly_override\"\"],\"\"recognized_revenue_basis\"\":{\"\"hybrid_monthly_override_usd\"\":31093.17},\"\"gross_margin_basis\"\":{\"\"gross_margin_usd\"\":80089.2},\"\"pc_breakdown\"\":{\"\"DATA_AGG_MONTHLY_OVERRIDE\"\":22887500},\"\"sp_breakdown\"\":{\"\"DATA_AGG_MONTHLY_OVERRIDE\"\":178920},\"\"global_reward_breakdown_usd\"\":{\"\"DATA_AGG_MONTHLY_OVERRIDE\"\":30680.14},\"\"cashout_breakdown_usd\"\":{\"\"DATA_AGG_MONTHLY_OVERRIDE\"\":30680.14},\"\"accountability_checks\"\":{\"\"cashout_total_usd\"\":30680.14}}\"'
+  ].join("\n");
+
+  const result = parseCompatibilityCsvSnapshotText(csvText, {
+    mode: "understanding_doc_strict"
+  });
+
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.equal(result.facts.length, 1);
+});
+
+test("bgc reward-only rows do not require entry_fee basis when they carry no join revenue or pc issuance", () => {
+  const csvText = [
+    "period_key,member_key,source_system,member_tier,group_key,pc_volume,sp_reward_basis,global_reward_usd,pool_reward_usd,cashout_usd,sink_spend_usd,active_member,recognized_revenue_usd,gross_margin_usd,member_join_period,is_affiliate,cross_app_active,extra_json",
+    '2025-06,BGC-GLOBAL-2025-SPECIAL-001,bgc,special,,0,1250,125,0,0,0,true,,,2024-04,true,,"{""source_categories"":[""global_profit_2025_first_half_distribution""]}"'
+  ].join("\n");
+
+  const result = parseCompatibilityCsvSnapshotText(csvText, {
+    mode: "understanding_doc_strict"
+  });
+
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.equal(result.facts.length, 1);
+});

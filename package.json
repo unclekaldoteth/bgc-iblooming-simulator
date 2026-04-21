@@ -23,7 +23,8 @@
     "snapshot:import": "tsx --env-file=.env scripts/import-snapshot.ts",
     "snapshot:queue-import": "tsx --env-file=.env scripts/queue-snapshot-import.ts",
     "snapshot:build-bgc-bundle": "tsx scripts/build-bgc-source-bundle.ts",
-    "snapshot:verify-bgc-bundle": "tsx scripts/verify-bgc-source-bundle.ts"
+    "snapshot:verify-bgc-bundle": "tsx scripts/verify-bgc-source-bundle.ts",
+    "snapshot:build-bgc-hybrid-artifacts": "tsx scripts/build-bgc-hybrid-artifacts.ts"
   },
   "dependencies": {
     "@bgc-alpha/auth": "workspace:*",

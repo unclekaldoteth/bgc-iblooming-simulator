@@ -886,8 +886,13 @@ button, input, select, textarea { font: inherit; }
 /* ─── Snapshot card list ─── */
 .snapshot-card-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
+}
+
+.snapshot-card-list > .snapshot-card:only-child,
+.snapshot-card-list > .snapshot-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 .snapshot-card {
