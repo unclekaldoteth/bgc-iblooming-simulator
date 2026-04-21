@@ -83,17 +83,8 @@ server already using `5432`.
 Local Postgres is configured for development-only trust auth inside the Docker container. Do not
 reuse this setup for shared or production environments.
 
-Default seeded accounts:
-
-- `founder@bgc.local`
-- `analyst@bgc.local`
-- `product@bgc.local`
-- `engineering@bgc.local`
-- `admin@bgc.local`
-
-Default seeded password:
-
-- `ChangeMe123!`
+Local development can seed default users for testing. Configure or rotate seeded credentials through
+the environment and seed scripts instead of relying on hard-coded README values.
 
 ## Vercel Deployment
 

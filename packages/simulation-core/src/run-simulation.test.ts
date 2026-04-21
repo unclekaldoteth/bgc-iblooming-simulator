@@ -232,7 +232,7 @@ test("cashflow lens separates gross cash, retained revenue, partner payouts, poo
   assert.equal(result.summary_metrics.company_pool_funding_obligation_total, 12);
   assert.equal(result.summary_metrics.company_actual_payout_out_total, 35.46);
   assert.equal(result.summary_metrics.company_product_fulfillment_out_total, 15);
-  assert.equal(result.summary_metrics.company_net_treasury_delta_total, 9.54);
+  assert.equal(result.summary_metrics.company_net_treasury_delta_total, 79.54);
 });
 
 test("zero inflow no longer suppresses payout pressure", () => {

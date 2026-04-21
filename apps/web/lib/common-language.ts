@@ -33,6 +33,7 @@ const segmentKeyLabels: Record<string, string> = {
   cashout: "Cash-Out",
   hold: "Held",
   iblooming: "iBLOOMING",
+  unknown: "Unclassified",
   spend: "Used"
 };
 

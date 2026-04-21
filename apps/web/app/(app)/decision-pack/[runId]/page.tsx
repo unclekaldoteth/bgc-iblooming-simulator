@@ -267,14 +267,7 @@ export default async function DecisionPackPage({
               </p>
               {recommendedSetup ? (
                 <>
-                  <div
-                    style={{
-                      display: "grid",
-                      gap: "0.75rem",
-                      gridTemplateColumns: "minmax(0, 1fr) minmax(18rem, 24rem)",
-                      marginBottom: "1rem"
-                    }}
-                  >
+                  <div className="decision-baseline-layout">
                     <div className="decision-summary">
                       <div className="decision-summary__verdict">
                         <span className="badge badge--candidate">{recommendedSetup.title}</span>
@@ -294,9 +287,22 @@ export default async function DecisionPackPage({
                         ) : null}
                       </div>
                     </div>
-                    <Card title="Pilot Baseline Lock">
+                    <section className="decision-baseline-panel">
+                      <div className="decision-baseline-panel__header">
+                        <div>
+                          <span className={`badge ${isAdoptedBaseline ? "badge--candidate" : "badge--neutral"}`}>
+                            {isAdoptedBaseline ? "Current Pilot Baseline" : "Governance Action"}
+                          </span>
+                          <h4>Pilot Baseline Lock</h4>
+                        </div>
+                      </div>
                       <p className="card-intro">
                         Promote this recommendation from “best current run” into the current pilot baseline for the scenario.
+                      </p>
+                      <p className="muted">
+                        {isAdoptedBaseline
+                          ? "This run is already adopted as the current pilot baseline. Clear it only if you intentionally want to reopen baseline selection."
+                          : "Adopt this run only when you want its setup to become the default pilot reference for founder-facing discussion."}
                       </p>
                       <RecommendedBaselineControls
                         canWrite={canWriteScenarios}
@@ -304,7 +310,7 @@ export default async function DecisionPackPage({
                         runId={run.id}
                         scenarioId={run.scenario.id}
                       />
-                    </Card>
+                    </section>
                   </div>
                   <div className="table-wrap" style={{ marginTop: "1rem" }}>
                     <table className="table">
@@ -399,10 +405,17 @@ export default async function DecisionPackPage({
                             </span>
                           </td>
                           <td>
-                            <div style={{ display: "grid", gap: "0.45rem" }}>
+                            <div className="decision-log-governance">
                               <span className={`badge ${entry.governance_status === "accepted" ? "badge--candidate" : entry.governance_status === "rejected" ? "badge--rejected" : entry.governance_status === "deferred" ? "badge--risky" : "badge--neutral"}`}>
                                 {getDecisionGovernanceStatusLabel(entry.governance_status ?? "draft")}
                               </span>
+                              {entry.reviewed_at ? (
+                                <span className="muted">
+                                  Reviewed {new Date(entry.reviewed_at).toLocaleString("en-US")}
+                                </span>
+                              ) : (
+                                <span className="muted">No governance review saved yet.</span>
+                              )}
                               <DecisionLogGovernanceControl
                                 canWrite={canWriteRuns}
                                 decisionKey={entry.key}
@@ -413,18 +426,13 @@ export default async function DecisionPackPage({
                               />
                             </div>
                           </td>
-                          <td>{entry.governance_owner}</td>
+                          <td>{entry.governance_owner || "Unassigned"}</td>
                           <td>
-                            <div style={{ display: "grid", gap: "0.35rem" }}>
+                            <div className="decision-log-rationale">
                               <span>{entry.rationale}</span>
                               {entry.resolution_note ? (
                                 <span className="muted">
                                   Resolution note: {entry.resolution_note}
-                                </span>
-                              ) : null}
-                              {entry.reviewed_at ? (
-                                <span className="muted">
-                                  Last reviewed: {new Date(entry.reviewed_at).toLocaleString("en-US")}
                                 </span>
                               ) : null}
                             </div>
