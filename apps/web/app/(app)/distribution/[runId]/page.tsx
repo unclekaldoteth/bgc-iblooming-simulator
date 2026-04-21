@@ -94,12 +94,14 @@ export default async function DistributionPage({
     .filter((metric) => metric.metricKey === "reward_share_pct")
     .map((metric) => ({
       id: metric.id,
+      key: metric.segmentKey,
       label: getSegmentKeyLabel(metric.segmentKey),
       share: metric.metricValue
     }))
     .sort((left, right) => right.share - left.share);
   const largestTier = memberTierRows[0] ?? null;
   const largestTierStatus = getConcentrationStatus(largestTier?.share ?? 0);
+  const unclassifiedTier = memberTierRows.find((row) => row.key === "unknown") ?? null;
 
   const sourceBuckets = new Map<
     string,
@@ -108,7 +110,9 @@ export default async function DistributionPage({
       alphaIssued: number;
       grossCashIn: number;
       retainedRevenue: number;
+      partnerPayoutOut: number;
       actualPayoutOut: number;
+      productFulfillmentOut: number;
       netTreasuryDelta: number;
     }
   >();
@@ -121,14 +125,20 @@ export default async function DistributionPage({
         alphaIssued: 0,
         grossCashIn: 0,
         retainedRevenue: 0,
+        partnerPayoutOut: 0,
         actualPayoutOut: 0,
+        productFulfillmentOut: 0,
         netTreasuryDelta: 0
       };
 
     if (metric.metricKey === "alpha_issued_total") bucket.alphaIssued = metric.metricValue;
     if (metric.metricKey === "company_gross_cash_in_total") bucket.grossCashIn = metric.metricValue;
     if (metric.metricKey === "company_retained_revenue_total") bucket.retainedRevenue = metric.metricValue;
+    if (metric.metricKey === "company_partner_payout_out_total") bucket.partnerPayoutOut = metric.metricValue;
     if (metric.metricKey === "company_actual_payout_out_total") bucket.actualPayoutOut = metric.metricValue;
+    if (metric.metricKey === "company_product_fulfillment_out_total") {
+      bucket.productFulfillmentOut = metric.metricValue;
+    }
     if (metric.metricKey === "company_net_treasury_delta_total") bucket.netTreasuryDelta = metric.metricValue;
 
     sourceBuckets.set(metric.segmentKey, bucket);
@@ -261,23 +271,31 @@ export default async function DistributionPage({
               </div>
 
               {memberTierRows.length > 0 ? (
-                <div className="distribution-bar-list">
-                  {memberTierRows.map((row) => (
-                    <div className="distribution-bar-row" key={row.id}>
-                      <div className="distribution-bar-copy">
-                        <strong>{row.label}</strong>
-                        <span>{formatPercent(row.share)}</span>
+                <>
+                  <div className="distribution-bar-list">
+                    {memberTierRows.map((row) => (
+                      <div className="distribution-bar-row" key={row.id}>
+                        <div className="distribution-bar-copy">
+                          <strong>{row.label}</strong>
+                          <span>{formatPercent(row.share)}</span>
+                        </div>
+                        <div className="distribution-bar-track" aria-hidden="true">
+                          <div
+                            className="distribution-bar-fill"
+                            data-status={getConcentrationStatus(row.share)}
+                            style={{ width: `${getBarWidth(row.share, 100)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="distribution-bar-track" aria-hidden="true">
-                        <div
-                          className="distribution-bar-fill"
-                          data-status={getConcentrationStatus(row.share)}
-                          style={{ width: `${getBarWidth(row.share, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                  {unclassifiedTier ? (
+                    <p className="muted">
+                      Unclassified means the snapshot row has no explicit <code>member_tier</code>, so its issued
+                      ALPHA is grouped separately until tier mapping is closed.
+                    </p>
+                  ) : null}
+                </>
               ) : (
                 <p className="muted">No member-tier distribution rows available.</p>
               )}
@@ -315,6 +333,10 @@ export default async function DistributionPage({
 
                 <section className="distribution-subpanel" aria-label="Cashflow by source">
                   <h4>Cashflow by Source</h4>
+                  <p className="muted">
+                    Net Delta = Retained Revenue - Actual Payout - Fulfillment Out. Partner Out is shown separately
+                    for audit visibility and is already excluded from Retained Revenue.
+                  </p>
                   {sourceRows.length > 0 ? (
                     <div className="table-wrap">
                       <table className="table">
@@ -322,8 +344,10 @@ export default async function DistributionPage({
                           <tr>
                             <th>Source</th>
                             <th>Gross In</th>
-                            <th>Revenue</th>
-                            <th>Payout</th>
+                            <th>Retained Revenue</th>
+                            <th>Partner Out</th>
+                            <th>Actual Payout</th>
+                            <th>Fulfillment Out</th>
                             <th>Net Delta</th>
                           </tr>
                         </thead>
@@ -333,7 +357,14 @@ export default async function DistributionPage({
                               <td>{row.label}</td>
                               <td>{formatSummaryMetricValue("company_gross_cash_in_total", row.grossCashIn)}</td>
                               <td>{formatSummaryMetricValue("company_retained_revenue_total", row.retainedRevenue)}</td>
+                              <td>{formatSummaryMetricValue("company_partner_payout_out_total", row.partnerPayoutOut)}</td>
                               <td>{formatSummaryMetricValue("company_actual_payout_out_total", row.actualPayoutOut)}</td>
+                              <td>
+                                {formatSummaryMetricValue(
+                                  "company_product_fulfillment_out_total",
+                                  row.productFulfillmentOut
+                                )}
+                              </td>
                               <td style={{ fontWeight: 700 }}>
                                 {formatSummaryMetricValue("company_net_treasury_delta_total", row.netTreasuryDelta)}
                               </td>

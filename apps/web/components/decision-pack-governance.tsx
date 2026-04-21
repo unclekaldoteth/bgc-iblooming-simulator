@@ -41,6 +41,7 @@ export function DecisionLogGovernanceControl({
   const [status, setStatus] = useState<(typeof governanceStatuses)[number]>(initialStatus ?? "draft");
   const [owner, setOwner] = useState(initialOwner);
   const [resolutionNote, setResolutionNote] = useState(initialResolutionNote ?? "");
+  const [isEditing, setIsEditing] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -72,46 +73,88 @@ export function DecisionLogGovernanceControl({
     }
 
     setMessage("Saved.");
+    setIsEditing(false);
     router.refresh();
   }
 
+  if (!canWrite) {
+    return message ? <small className="muted">{message}</small> : null;
+  }
+
   return (
-    <div className="decision-governance-control">
-      <div className="decision-governance-control__row">
-        <select
-          disabled={!canWrite || isPending}
-          onChange={(event) => setStatus(event.target.value as (typeof governanceStatuses)[number])}
-          value={status}
-        >
-          {governanceStatuses.map((item) => (
-            <option key={item} value={item}>
-              {getDecisionGovernanceStatusLabel(item)}
-            </option>
-          ))}
-        </select>
-        <input
-          disabled={!canWrite || isPending}
-          onChange={(event) => setOwner(event.target.value)}
-          placeholder="Owner"
-          value={owner}
-        />
-      </div>
-      <div className="decision-governance-control__row">
-        <input
-          disabled={!canWrite || isPending}
-          onChange={(event) => setResolutionNote(event.target.value)}
-          placeholder="Resolution note (optional)"
-          value={resolutionNote}
-        />
+    <div className="decision-log-editor">
+      {!isEditing ? (
         <button
-          className="ghost-button"
-          disabled={!canWrite || isPending}
-          onClick={() => startTransition(saveResolution)}
+          className="ghost-button decision-log-editor__toggle"
+          data-active="true"
+          disabled={isPending}
+          onClick={() => {
+            setMessage(null);
+            setIsEditing(true);
+          }}
           type="button"
         >
-          {isPending ? "Saving..." : "Save"}
+          Update
         </button>
-      </div>
+      ) : (
+        <div className="decision-log-editor__form">
+          <div className="decision-log-editor__grid">
+            <label className="decision-log-editor__field">
+              <span>Governance State</span>
+              <select
+                disabled={isPending}
+                onChange={(event) => setStatus(event.target.value as (typeof governanceStatuses)[number])}
+                value={status}
+              >
+                {governanceStatuses.map((item) => (
+                  <option key={item} value={item}>
+                    {getDecisionGovernanceStatusLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="decision-log-editor__field">
+              <span>Owner</span>
+              <input
+                disabled={isPending}
+                onChange={(event) => setOwner(event.target.value)}
+                placeholder="Owner"
+                value={owner}
+              />
+            </label>
+          </div>
+          <label className="decision-log-editor__field">
+            <span>Resolution Note</span>
+            <input
+              disabled={isPending}
+              onChange={(event) => setResolutionNote(event.target.value)}
+              placeholder="Resolution note (optional)"
+              value={resolutionNote}
+            />
+          </label>
+          <div className="decision-log-editor__actions">
+            <button
+              className="ghost-button"
+              disabled={isPending}
+              onClick={() => {
+                setMessage(null);
+                setIsEditing(false);
+              }}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="primary-button"
+              disabled={isPending}
+              onClick={() => startTransition(saveResolution)}
+              type="button"
+            >
+              {isPending ? "Saving..." : "Save Update"}
+            </button>
+          </div>
+        </div>
+      )}
       {message ? <small className="muted">{message}</small> : null}
     </div>
   );
@@ -172,14 +215,17 @@ export function RecommendedBaselineControls({
   }
 
   return (
-    <div className="decision-governance-control">
-      <div className="decision-governance-control__row">
+    <div className="decision-baseline-control">
+      {!isAdoptedBaseline ? (
         <input
-          disabled={!canWrite || isPending || isAdoptedBaseline}
+          className="decision-baseline-control__input"
+          disabled={!canWrite || isPending}
           onChange={(event) => setNote(event.target.value)}
           placeholder="Adoption note (optional)"
           value={note}
         />
+      ) : null}
+      <div className="decision-baseline-control__actions">
         {isAdoptedBaseline ? (
           <button
             className="ghost-button"
@@ -191,7 +237,7 @@ export function RecommendedBaselineControls({
           </button>
         ) : (
           <button
-            className="ghost-button"
+            className="primary-button"
             disabled={!canWrite || isPending}
             onClick={() => startTransition(adoptBaseline)}
             type="button"

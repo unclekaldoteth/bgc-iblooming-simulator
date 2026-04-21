@@ -1057,7 +1057,6 @@ function buildFinancialPeriodLedgers(
       ...ledger,
       netTreasuryDelta:
         ledger.retainedRevenue -
-        ledger.partnerPayoutOut -
         ledger.actualPayoutOut -
         ledger.productFulfillmentOut
     }));
@@ -1432,7 +1431,6 @@ function buildSegmentMetrics(
         metric_key: "company_net_treasury_delta_total",
         metric_value: roundMetric(
           (financial?.retainedRevenue ?? 0) -
-            (financial?.partnerPayoutOut ?? 0) -
             (financial?.actualPayoutOut ?? 0) -
             (financial?.productFulfillmentOut ?? 0)
         )
