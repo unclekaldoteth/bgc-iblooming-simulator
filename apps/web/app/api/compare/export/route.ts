@@ -5,6 +5,7 @@ import { listCompletedRunsByIds } from "@bgc-alpha/db";
 import { parseFounderSafeScenarioParameters } from "@bgc-alpha/schemas";
 import {
   renderCompareReportPdf,
+  renderCompareReportMarkdown,
   type CompareReportExport,
   type CompareReportTone
 } from "@bgc-alpha/exports";
@@ -398,9 +399,35 @@ function buildCompareReport(runs: CompareRunRecord[]) {
     return formatCompareParameterValue(parameterKey, value ?? null);
   };
 
+  const getSimulationSummaryStatusLabel = (status: string) => {
+    if (status === "ready") return "Ready";
+    if (status === "review") return "Needs Review";
+    if (status === "blocked") return "Blocked";
+    return "Info";
+  };
+
+  const getParameterClassificationLabel = (classification: string) => {
+    if (classification === "scenario_lever") return "Scenario Lever";
+    if (classification === "scenario_assumption") return "Scenario Assumption";
+    return "Locked Boundary";
+  };
+
+  const getFounderQuestionStatusLabel = (status: string) => {
+    if (status === "recommended") return "Recommended";
+    if (status === "pending_founder") return "Founder Decision";
+    return "Blocked";
+  };
+
+  const getImplementationPlanStatusLabel = (status: string) => {
+    if (status === "ready") return "Ready";
+    if (status === "in_progress") return "In Progress";
+    if (status === "blocked") return "Blocked";
+    return "Deferred";
+  };
+
   return {
     title: `Compare Report · ${runs.length} Selected Scenario${runs.length === 1 ? "" : "s"}`,
-    subtitle: "Scenario comparison exported with the same structure as the Compare tab: radar, decision snapshot, cashflow, truth coverage, canonical fidelity audit, recommended pilot envelope, parameter ranges, decision governance, ALPHA policy, treasury risk, distribution, goals, milestones, and run context.",
+    subtitle: "Scenario comparison exported with the same structure as the Compare tab: simulation summary, executive status memo, radar, decision snapshot, financial scenario view, cashflow, truth coverage, canonical fidelity audit, recommended pilot envelope, parameter registry, parameter ranges, founder question queue, technical implementation plan, decision governance, ALPHA policy, treasury risk, distribution, goals, milestones, and run context.",
     generatedAt: new Intl.DateTimeFormat("en-US", {
       dateStyle: "medium",
       timeStyle: "short"
@@ -424,10 +451,93 @@ function buildCompareReport(runs: CompareRunRecord[]) {
     radar: buildRadar(runs, runDisplayLabels),
     comparisonTables: [
       {
+        title: "Simulation Summary",
+        subtitle: "Compare-level readout for founder review before diving into detailed scenario and treasury tables.",
+        rowLabel: "Summary Item",
+        columns: [
+          { label: "Status" },
+          { label: "Current Readout" },
+          { label: "Implication" }
+        ],
+        rows: decisionSupport.simulationSummary.rows.map((row) => ({
+          label: row.label,
+          cells: [
+            {
+              primary: getSimulationSummaryStatusLabel(row.status),
+              tone: getTone(row.status === "ready" ? "candidate" : row.status === "review" ? "risky" : row.status === "blocked" ? "rejected" : "info")
+            },
+            {
+              primary: row.currentReadout
+            },
+            {
+              primary: row.implication
+            }
+          ]
+        }))
+      },
+      {
+        title: "Executive Status Memo",
+        subtitle: "Founder-facing status memo generated from the current compare set.",
+        rowLabel: "Memo Item",
+        columns: [
+          { label: "Status" },
+          { label: "Current Readout" },
+          { label: "Implication" }
+        ],
+        rows: decisionSupport.executiveStatusMemo.rows.map((row) => ({
+          label: row.label,
+          cells: [
+            {
+              primary: getSimulationSummaryStatusLabel(row.status),
+              tone: getTone(row.status === "ready" ? "candidate" : row.status === "review" ? "risky" : row.status === "blocked" ? "rejected" : "info")
+            },
+            {
+              primary: row.currentReadout
+            },
+            {
+              primary: row.implication
+            }
+          ]
+        }))
+      },
+      {
         title: "Compare Decision Snapshot",
         subtitle: "Verdict and core financial/risk metrics per selected run.",
         rowLabel: "Decision Item",
         rows: decisionRows
+      },
+      {
+        title: "Financial View by Scenario",
+        subtitle: "Founder-facing business cashflow posture per selected run.",
+        rowLabel: "Scenario",
+        columns: [
+          { label: "Posture" },
+          { label: "Cashflow Readout" },
+          { label: "Leakage" },
+          { label: "Tradeoff" }
+        ],
+        rows: decisionSupport.financialScenarioView.rows.map((row) => ({
+          label: row.label,
+          cells: [
+            {
+              primary: row.posture,
+              secondary: getPolicyStatusLabel(row.verdict),
+              tone: getTone(row.verdict)
+            },
+            {
+              primary: `Gross ${formatCommonMetricValue("company_gross_cash_in_total", row.grossCashIn)} · Revenue ${formatCommonMetricValue("company_retained_revenue_total", row.retainedRevenue)}`,
+              secondary: `Partner ${formatCommonMetricValue("company_partner_payout_out_total", row.partnerPayoutOut)} · Direct oblig. ${formatCommonMetricValue("company_direct_reward_obligation_total", row.directObligations)} · Net ${formatCommonMetricValue("company_net_treasury_delta_total", row.netTreasuryDelta)}`
+            },
+            {
+              primary: `${formatCommonMetricValue("company_actual_payout_out_total", row.actualPayoutOut)} payout · ${formatCommonMetricValue("company_product_fulfillment_out_total", row.fulfillmentOut)} fulfillment`,
+              secondary: `${row.leakageRatePct.toFixed(2)}% of gross in`
+            },
+            {
+              primary: row.tradeoff,
+              secondary: `Pressure ${formatCommonMetricValue("payout_inflow_ratio", row.treasuryPressure)} · Runway ${formatMonthCountLabel(row.reserveRunwayMonths)}`
+            }
+          ]
+        }))
       },
       {
         title: "Business Cashflow Comparison",
@@ -604,6 +714,60 @@ function buildCompareReport(runs: CompareRunRecord[]) {
         ]
       },
       {
+        title: "Parameter Registry",
+        subtitle: "Parameter register aligned to the Simulation Docs: tested range, working default, current recommendation, and decision owner.",
+        rowLabel: "Parameter",
+        columns: [
+          { label: "Symbol" },
+          { label: "Description" },
+          { label: "Tested Range" },
+          { label: "Working Default" },
+          { label: "Current Recommendation" },
+          { label: "Decision Owner" },
+          { label: "Classification" }
+        ],
+        rows: decisionSupport.parameterRegistry.map((row) => ({
+          label: row.label,
+          cells: [
+            {
+              primary: row.symbol
+            },
+            {
+              primary: row.description
+            },
+            {
+              primary: row.testedRange
+            },
+            {
+              primary: row.workingDefault
+            },
+            {
+              primary: row.currentRecommended
+            },
+            {
+              primary: row.decisionOwner
+            },
+            {
+              primary: getParameterClassificationLabel(row.classification),
+              secondary: `Guardrail: ${
+                row.guardrailStatus === "allowed"
+                  ? "Allowed"
+                  : row.guardrailStatus === "conditional"
+                    ? "Assumption"
+                    : "Locked"
+              }`,
+              tone: getTone(
+                row.classification === "scenario_lever"
+                  ? "candidate"
+                  : row.classification === "scenario_assumption"
+                    ? "risky"
+                    : "pending"
+              )
+            }
+          ]
+        }))
+      },
+      {
         title: "Parameter Range Synthesis",
         subtitle: "Tested values across the selected runs, normalized into ready, caution, and rejected ranges.",
         rowLabel: "Parameter",
@@ -620,6 +784,68 @@ function buildCompareReport(runs: CompareRunRecord[]) {
               tone: getTone(extrasByRunId.get(run.id)?.verdictStatus ?? "pending")
             };
           })
+        }))
+      },
+      {
+        title: "Founder Question Queue",
+        subtitle: "Questions that still require explicit founder calls before Whitepaper v1 and Tokenflow v1 can be treated as closed.",
+        rowLabel: "Founder Question",
+        columns: [
+          { label: "Status" },
+          { label: "Why Now" },
+          { label: "Recommended Direction" },
+          { label: "Decision Owner" },
+          { label: "Decision Options" }
+        ],
+        rows: decisionSupport.founderQuestionQueue.map((row) => ({
+          label: row.question,
+          cells: [
+            {
+              primary: getFounderQuestionStatusLabel(row.status),
+              tone: getTone(row.status === "recommended" ? "candidate" : row.status === "pending_founder" ? "risky" : "rejected")
+            },
+            {
+              primary: row.whyNow
+            },
+            {
+              primary: row.recommendedDirection
+            },
+            {
+              primary: row.decisionOwner
+            },
+            {
+              primary: row.decisionOptions
+            }
+          ]
+        }))
+      },
+      {
+        title: "Technical Implementation Plan",
+        subtitle: "Minimal implementation plan for closing the brief package without expanding engine scope unnecessarily.",
+        rowLabel: "Workstream",
+        columns: [
+          { label: "Owner" },
+          { label: "Status" },
+          { label: "Next Action" },
+          { label: "Why It Matters" }
+        ],
+        rows: decisionSupport.technicalImplementationPlan.rows.map((row) => ({
+          label: row.label,
+          cells: [
+            {
+              primary: row.owner
+            },
+            {
+              primary: getImplementationPlanStatusLabel(row.status),
+              tone: getTone(row.status === "ready" ? "candidate" : row.status === "in_progress" ? "risky" : row.status === "blocked" ? "rejected" : "pending")
+            },
+            {
+              primary: row.nextAction
+            },
+            {
+              primary: row.whyItMatters
+            }
+          ]
         }))
       },
       {
@@ -817,6 +1043,7 @@ export async function GET(request: Request) {
   }
 
   const searchParams = new URL(request.url).searchParams;
+  const format = searchParams.get("format")?.toLowerCase() ?? "pdf";
   const runIds = [...new Set(searchParams.getAll("runId").filter(Boolean))];
 
   if (runIds.length === 0) {
@@ -851,6 +1078,23 @@ export async function GET(request: Request) {
   const filenameSeed = orderedRuns.length === 1
     ? `${orderedRuns[0].scenario.name}-${getRunReference(orderedRuns[0].id)}-compare-report`
     : `compare-${getRunReference(orderedRuns[0].id)}-plus-${orderedRuns.length - 1}`;
+
+  if (format === "json") {
+    return NextResponse.json(report, {
+      headers: {
+        "Content-Disposition": `attachment; filename="${buildFilename(filenameSeed)}.json"`
+      }
+    });
+  }
+
+  if (format === "md" || format === "markdown") {
+    return new NextResponse(renderCompareReportMarkdown(report), {
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${buildFilename(filenameSeed)}.md"`
+      }
+    });
+  }
 
   return new NextResponse(renderCompareReportPdf(report), {
     headers: {

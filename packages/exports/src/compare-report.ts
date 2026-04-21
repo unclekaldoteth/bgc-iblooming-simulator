@@ -1,4 +1,5 @@
 import { renderCompareReportStyledPdf } from "./pdf/render-compare-report-pdf";
+import { renderCompareReportMarkdown as renderCompareReportMarkdownDocument } from "./markdown/render-compare-report";
 
 export type CompareReportTone = "accent" | "warning" | "danger" | "info" | "neutral";
 
@@ -36,10 +37,16 @@ export type CompareReportExportCell = {
   muted?: boolean;
 };
 
+export type CompareReportExportColumn = {
+  label: string;
+  color?: string;
+};
+
 export type CompareReportExportTable = {
   title: string;
   subtitle?: string;
   rowLabel: string;
+  columns?: CompareReportExportColumn[];
   rows: Array<{
     label: string;
     cells: CompareReportExportCell[];
@@ -57,4 +64,8 @@ export type CompareReportExport = {
 
 export function renderCompareReportPdf(report: CompareReportExport) {
   return renderCompareReportStyledPdf(report);
+}
+
+export function renderCompareReportMarkdown(report: CompareReportExport) {
+  return renderCompareReportMarkdownDocument(report);
 }
