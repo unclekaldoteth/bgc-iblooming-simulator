@@ -7,6 +7,7 @@ import type {
 } from "@bgc-alpha/schemas";
 
 import { prisma } from "./client";
+import { buildSnapshotDataFingerprint } from "./snapshot-data-fingerprint";
 
 export type SnapshotValidationIssueInput = {
   severity: "ERROR" | "WARNING";
@@ -68,7 +69,7 @@ export type SnapshotMemberMonthFactRecord = Awaited<
 type CreateSnapshotInput = {
   name: string;
   sourceSystems: string[];
-  sourceType?: "compatibility_csv" | "canonical_json" | "canonical_bundle" | "hybrid_verified";
+  sourceType?: "compatibility_csv" | "canonical_csv" | "canonical_json" | "canonical_bundle" | "hybrid_verified";
   validatedVia?: "monthly_facts" | "canonical_events" | "hybrid_validation";
   truthNotes?: string | null;
   supersededBySnapshotId?: string | null;
@@ -122,6 +123,7 @@ export const snapshotBaseSelect = {
   name: true,
   sourceSystems: true,
   canonicalSourceSnapshotKey: true,
+  dataFingerprint: true,
   sourceType: true,
   validatedVia: true,
   truthNotes: true,
@@ -145,6 +147,7 @@ export const snapshotBaseSelect = {
 export const snapshotDefaultRelationSelect = {
   id: true,
   name: true,
+  dataFingerprint: true,
   validationStatus: true,
   archivedAt: true,
   _count: {
@@ -283,16 +286,57 @@ export async function createSnapshot(input: CreateSnapshotInput) {
 }
 
 export async function createSnapshotImportRun(input: CreateSnapshotImportRunInput) {
-  return prisma.snapshotImportRun.create({
-    data: {
-      snapshotId: input.snapshotId,
-      fileUri: input.fileUri,
-      requestedByUserId: input.requestedByUserId ?? null,
-      status: SnapshotImportStatus.QUEUED
-    },
-    include: {
-      issues: true
+  return prisma.$transaction(async (tx) => {
+    const snapshot = await tx.datasetSnapshot.findUnique({
+      where: {
+        id: input.snapshotId
+      },
+      select: {
+        id: true,
+        dataFingerprint: true,
+        validationStatus: true,
+        archivedAt: true
+      }
+    });
+
+    if (!snapshot) {
+      throw new Error(`Snapshot ${input.snapshotId} was not found.`);
     }
+
+    if (snapshot.archivedAt) {
+      throw new Error("snapshot_archived");
+    }
+
+    if (snapshot.validationStatus === SnapshotStatus.APPROVED && snapshot.dataFingerprint) {
+      throw new Error("snapshot_approved_immutable");
+    }
+
+    await tx.datasetSnapshot.update({
+      where: {
+        id: input.snapshotId
+      },
+      data: {
+        validationStatus: SnapshotStatus.DRAFT,
+        approvedAt: null,
+        approvedByUserId: null,
+        dataFingerprint: null
+      },
+      select: {
+        id: true
+      }
+    });
+
+    return tx.snapshotImportRun.create({
+      data: {
+        snapshotId: input.snapshotId,
+        fileUri: input.fileUri,
+        requestedByUserId: input.requestedByUserId ?? null,
+        status: SnapshotImportStatus.QUEUED
+      },
+      include: {
+        issues: true
+      }
+    });
   });
 }
 
@@ -402,8 +446,18 @@ export async function replaceSnapshotFactsAndCompleteImport(
     rewardSourcePeriodFacts?: SnapshotRewardSourcePeriodFactInput[];
     poolPeriodFacts?: SnapshotPoolPeriodFactInput[];
     canonicalSourceSnapshotKey?: string | null;
+    sourceType?: string;
+    validatedVia?: string;
   }
 ) {
+  const dataFingerprint = buildSnapshotDataFingerprint({
+    importRunId,
+    canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null,
+    facts,
+    rewardSourcePeriodFacts: input.rewardSourcePeriodFacts,
+    poolPeriodFacts: input.poolPeriodFacts
+  });
+
   return prisma.$transaction(async (tx) => {
     await tx.snapshotImportIssue.deleteMany({
       where: {
@@ -528,7 +582,10 @@ export async function replaceSnapshotFactsAndCompleteImport(
           validationStatus: SnapshotStatus.DRAFT,
           approvedAt: null,
           approvedByUserId: null,
-          canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null
+          canonicalSourceSnapshotKey: input.canonicalSourceSnapshotKey ?? null,
+          dataFingerprint,
+          sourceType: input.sourceType,
+          validatedVia: input.validatedVia
         },
         select: {
           id: true
@@ -546,7 +603,10 @@ export async function replaceSnapshotFactsAndCompleteImport(
         data: {
           validationStatus: SnapshotStatus.DRAFT,
           approvedAt: null,
-          approvedByUserId: null
+          approvedByUserId: null,
+          dataFingerprint,
+          sourceType: input.sourceType,
+          validatedVia: input.validatedVia
         },
         select: {
           id: true
@@ -591,6 +651,15 @@ export async function failSnapshotImportRun(
   }
 ) {
   return prisma.$transaction(async (tx) => {
+    const importRun = await tx.snapshotImportRun.findUnique({
+      where: {
+        id: importRunId
+      },
+      select: {
+        snapshotId: true
+      }
+    });
+
     await tx.snapshotImportIssue.deleteMany({
       where: {
         importRunId
@@ -606,6 +675,23 @@ export async function failSnapshotImportRun(
           message: issue.message,
           rowRef: issue.rowRef ?? null
         }))
+      });
+    }
+
+    if (importRun) {
+      await tx.datasetSnapshot.update({
+        where: {
+          id: importRun.snapshotId
+        },
+        data: {
+          validationStatus: SnapshotStatus.INVALID,
+          approvedAt: null,
+          approvedByUserId: null,
+          dataFingerprint: null
+        },
+        select: {
+          id: true
+        }
       });
     }
 
@@ -903,7 +989,7 @@ export async function getSnapshotTruthCoverage(
   const rows: DecisionPackHistoricalTruthCoverage["rows"] = [
     {
       key: "snapshot_approval",
-      label: "Snapshot approval state",
+      label: "Approval status",
       status:
         snapshot.validationStatus === "APPROVED"
           ? "available"
@@ -912,23 +998,23 @@ export async function getSnapshotTruthCoverage(
             : "missing",
       detail:
         snapshot.validationStatus === "APPROVED"
-          ? `${snapshot.name} is approved for simulation truth.`
+          ? `${snapshot.name} is approved for simulations.`
           : snapshot.validationStatus === "VALID"
-            ? `${snapshot.name} is validated but not yet approved.`
-            : `${snapshot.name} is not yet fully approved for stable truth claims.`
+            ? `${snapshot.name} is checked but not yet approved.`
+            : `${snapshot.name} is not approved yet.`
     },
     {
       key: "derived_member_period_facts",
-      label: "Derived member-period facts",
+      label: "Monthly simulation rows",
       status: snapshot._count.memberMonthFacts > 0 ? "available" : "missing",
       detail:
         snapshot._count.memberMonthFacts > 0
-          ? `${snapshot._count.memberMonthFacts} member-period fact rows are available for simulation input.`
-          : "No derived member-period facts are stored for this snapshot."
+          ? `${snapshot._count.memberMonthFacts} monthly rows are available for simulation.`
+          : "No monthly simulation rows are available for this snapshot."
     },
     {
       key: "canonical_member_registry",
-      label: "Canonical member registry",
+      label: "Member details",
       status:
         snapshot._count.canonicalMembers > 0 && snapshot._count.canonicalMemberAliases > 0
           ? "available"
@@ -937,21 +1023,21 @@ export async function getSnapshotTruthCoverage(
             : "missing",
       detail:
         snapshot._count.canonicalMembers > 0
-          ? `${snapshot._count.canonicalMembers} canonical members and ${snapshot._count.canonicalMemberAliases} aliases are stored.`
-          : "No canonical member registry is stored for this snapshot."
+          ? `${snapshot._count.canonicalMembers} members and ${snapshot._count.canonicalMemberAliases} aliases are available.`
+          : "Member details are missing for this snapshot."
     },
     {
       key: "canonical_business_events",
-      label: "Canonical business events",
+      label: "Business events",
       status: snapshot._count.canonicalBusinessEvents > 0 ? "available" : "missing",
       detail:
         snapshot._count.canonicalBusinessEvents > 0
-          ? `${snapshot._count.canonicalBusinessEvents} canonical business events are stored.`
-          : "No canonical business events are stored for this snapshot."
+          ? `${snapshot._count.canonicalBusinessEvents} business event rows are available.`
+          : "Business event details are missing for this snapshot."
     },
     {
       key: "canonical_reward_ledgers",
-      label: "Canonical reward / pool / cashout ledgers",
+      label: "Reward, pool, and cash-out details",
       status:
         snapshot._count.canonicalRewardObligations > 0 &&
         snapshot._count.canonicalPoolEntries > 0 &&
@@ -966,12 +1052,12 @@ export async function getSnapshotTruthCoverage(
         snapshot._count.canonicalRewardObligations > 0 ||
         snapshot._count.canonicalPoolEntries > 0 ||
         snapshot._count.canonicalCashoutEvents > 0
-          ? `${snapshot._count.canonicalRewardObligations} reward obligations, ${snapshot._count.canonicalPoolEntries} pool entries, and ${snapshot._count.canonicalCashoutEvents} cashout events are stored.`
-          : "No canonical reward, pool, or cashout ledger rows are stored for this snapshot."
+          ? `${snapshot._count.canonicalRewardObligations} reward rows, ${snapshot._count.canonicalPoolEntries} pool rows, and ${snapshot._count.canonicalCashoutEvents} cash-out rows are available.`
+          : "Reward, pool, and cash-out details are missing for this snapshot."
     },
     {
       key: "period_fact_coverage",
-      label: "Reward-source and pool period facts",
+      label: "Monthly reward and pool totals",
       status:
         snapshot._count.rewardSourcePeriodFacts > 0 && snapshot._count.poolPeriodFacts > 0
           ? "available"
@@ -980,8 +1066,8 @@ export async function getSnapshotTruthCoverage(
             : "missing",
       detail:
         snapshot._count.rewardSourcePeriodFacts > 0 || snapshot._count.poolPeriodFacts > 0
-          ? `${snapshot._count.rewardSourcePeriodFacts} reward-source period facts and ${snapshot._count.poolPeriodFacts} pool period facts are stored.`
-          : "No reward-source or pool period facts are stored for this snapshot."
+          ? `${snapshot._count.rewardSourcePeriodFacts} reward total rows and ${snapshot._count.poolPeriodFacts} pool total rows are available.`
+          : "Monthly reward or pool totals are missing for this snapshot."
     },
     {
       key: "qualification_history",
@@ -989,8 +1075,8 @@ export async function getSnapshotTruthCoverage(
       status: snapshot._count.canonicalQualificationStatusHistory > 0 ? "available" : "missing",
       detail:
         snapshot._count.canonicalQualificationStatusHistory > 0
-          ? `${snapshot._count.canonicalQualificationStatusHistory} qualification history rows are stored.`
-          : "No canonical qualification history is stored for this snapshot."
+          ? `${snapshot._count.canonicalQualificationStatusHistory} qualification history rows are available.`
+          : "Qualification history is missing for this snapshot."
     }
   ];
 
@@ -1009,10 +1095,10 @@ export async function getSnapshotTruthCoverage(
 
   const summary =
     status === "strong"
-      ? "Approved snapshot truth is backed by canonical ledgers and derived simulation facts, so recommendation claims can trace back to stored business evidence."
+      ? "This snapshot has approved data and enough source detail for simulation claims."
       : status === "partial"
-        ? "Snapshot truth is usable, but some canonical layers are still incomplete or not fully approved, so founder claims should stay calibrated."
-        : "Snapshot truth coverage is weak. Simulation outputs may still be useful for discussion, but they should not be treated as fully faithful final evidence.";
+        ? "This snapshot can be used, but some source details are still incomplete. Keep caveats visible."
+        : "Snapshot data coverage is weak. Simulation outputs may still be useful for discussion, but they should not be treated as final evidence.";
 
   return {
     status,
@@ -1036,6 +1122,7 @@ export function buildSnapshotManifest(
 
   return {
     sourceType:
+      snapshot.sourceType === "canonical_csv" ||
       snapshot.sourceType === "canonical_json" ||
       snapshot.sourceType === "canonical_bundle" ||
       snapshot.sourceType === "hybrid_verified"
@@ -1050,8 +1137,8 @@ export function buildSnapshotManifest(
     founderReadiness,
     summary:
       founderReadiness === "founder_safe"
-        ? "This snapshot is strong enough to support founder-facing simulation claims."
-        : "This snapshot is usable, but canonical closure is still needed before treating it as the strongest founder-facing truth source.",
+        ? "This snapshot is strong enough for founder review and simulation outputs."
+        : "This snapshot can be used for simulations, but some source details are still missing. Keep caveats visible.",
     truthNotes: snapshot.truthNotes ?? null,
     supersededBySnapshotId: snapshot.supersededBySnapshotId ?? null
   };
@@ -1092,7 +1179,7 @@ export async function getSnapshotCanonicalGapAudit(
   const rows: CanonicalGapAudit["rows"] = [
     {
       key: "member_provenance",
-      label: "Member provenance",
+      label: "Member history",
       status:
         snapshot._count.canonicalMembers > 0 &&
         snapshot._count.canonicalMemberAliases > 0 &&
@@ -1108,20 +1195,20 @@ export async function getSnapshotCanonicalGapAudit(
         snapshot._count.canonicalMemberAliases > 0 ||
         snapshot._count.canonicalRoleHistory > 0
           ? `${snapshot._count.canonicalMembers} members, ${snapshot._count.canonicalMemberAliases} aliases, ${snapshot._count.canonicalRoleHistory} role history rows.`
-          : "No canonical member provenance is stored."
+          : "Member history is missing."
     },
     {
       key: "event_lineage",
-      label: "Business-event lineage",
+      label: "Business events",
       status: snapshot._count.canonicalBusinessEvents > 0 ? "covered" : "missing",
       detail:
         snapshot._count.canonicalBusinessEvents > 0
-          ? `${snapshot._count.canonicalBusinessEvents} canonical business events are stored.`
-          : "No canonical business-event lineage is stored."
+          ? `${snapshot._count.canonicalBusinessEvents} business event rows are available.`
+          : "Business event details are missing."
     },
     {
       key: "reward_lineage",
-      label: "Reward lineage",
+      label: "Reward details",
       status:
         snapshot._count.canonicalRewardObligations > 0 &&
         snapshot._count.canonicalPcEntries > 0 &&
@@ -1136,26 +1223,26 @@ export async function getSnapshotCanonicalGapAudit(
         snapshot._count.canonicalRewardObligations > 0 ||
         snapshot._count.canonicalPcEntries > 0 ||
         snapshot._count.canonicalSpEntries > 0
-          ? `${snapshot._count.canonicalRewardObligations} reward obligations, ${snapshot._count.canonicalPcEntries} PC entries, ${snapshot._count.canonicalSpEntries} SP entries.`
-          : "No canonical reward lineage is stored."
+          ? `${snapshot._count.canonicalRewardObligations} reward rows, ${snapshot._count.canonicalPcEntries} PC rows, ${snapshot._count.canonicalSpEntries} SP rows.`
+          : "Reward details are missing."
     },
     {
       key: "pool_lineage",
-      label: "Pool lineage",
+      label: "Pool details",
       status: snapshot._count.canonicalPoolEntries > 0 ? "covered" : "missing",
       detail:
         snapshot._count.canonicalPoolEntries > 0
-          ? `${snapshot._count.canonicalPoolEntries} canonical pool ledger rows are stored.`
-          : "No canonical pool lineage is stored."
+          ? `${snapshot._count.canonicalPoolEntries} pool detail rows are available.`
+          : "Pool details are missing."
     },
     {
       key: "cashout_lineage",
-      label: "Cash-out lineage",
+      label: "Cash-out details",
       status: snapshot._count.canonicalCashoutEvents > 0 ? "covered" : "missing",
       detail:
         snapshot._count.canonicalCashoutEvents > 0
-          ? `${snapshot._count.canonicalCashoutEvents} canonical cash-out events are stored.`
-          : "No canonical cash-out lineage is stored."
+          ? `${snapshot._count.canonicalCashoutEvents} cash-out rows are available.`
+          : "Cash-out details are missing."
     },
     {
       key: "qualification_windows",
@@ -1172,16 +1259,16 @@ export async function getSnapshotCanonicalGapAudit(
         snapshot._count.canonicalQualificationWindows > 0 ||
         snapshot._count.canonicalQualificationStatusHistory > 0
           ? `${snapshot._count.canonicalQualificationWindows} qualification windows and ${snapshot._count.canonicalQualificationStatusHistory} status history rows.`
-          : "No canonical qualification lineage is stored."
+          : "Qualification history is missing."
     },
     {
       key: "compatibility_bridge",
-      label: "Compatibility monthly bridge",
+      label: "Monthly simulation rows",
       status: snapshot._count.memberMonthFacts > 0 ? "covered" : "missing",
       detail:
         snapshot._count.memberMonthFacts > 0
-          ? `${snapshot._count.memberMonthFacts} compatibility monthly fact rows are stored.`
-          : "No compatibility monthly bridge is stored."
+          ? `${snapshot._count.memberMonthFacts} monthly simulation rows are available.`
+          : "Monthly simulation rows are missing."
     }
   ];
 
@@ -1205,10 +1292,10 @@ export async function getSnapshotCanonicalGapAudit(
     readiness,
     summary:
       readiness === "strong"
-        ? "Canonical lineage is broadly closed across member provenance, events, rewards, pools, cash-out, and qualification tracking."
+        ? "Source details are available across members, events, rewards, pools, cash-out, and qualifications."
         : readiness === "partial"
-          ? "Canonical lineage is partially available. The simulator can support decisions, but some rule families still rely on incomplete event-native closure."
-          : "Canonical lineage is still weak. The simulator remains useful for discussion, but final claims should stay calibrated until deeper canonical closure is complete.",
+          ? "Some source details are available. The simulator can support decisions, but keep caveats visible."
+          : "Source detail is still weak. The simulator is useful for discussion, but final claims need stronger data.",
     rows
   };
 }

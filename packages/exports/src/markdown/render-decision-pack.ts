@@ -57,7 +57,7 @@ function formatMetricValue(value: number, unit: string) {
 export function renderDecisionPackMarkdown(pack: DecisionPack) {
   return `# ${pack.title}
 
-## Policy Status
+## Decision Status
 
 ${getPolicyStatusLabel(pack.policy_status)}
 
@@ -65,27 +65,27 @@ ${getPolicyStatusLabel(pack.policy_status)}
 
 ${pack.recommendation}
 
-## Evaluated Scenario Basis
+## Settings Used
 
 ${pack.preferred_settings.map((item) => `- ${item}`).join("\n")}
 
-## Blockers / Rejection Reasons
+## Blockers
 
 ${pack.rejected_settings.map((item) => `- ${item}`).join("\n")}
 
-## Strategic Objectives
+## Goal Details
 
 ${
   pack.strategic_objectives.length === 0
-    ? "No strategic scorecards were generated for this run."
+    ? "No goal details were generated for this result."
     : pack.strategic_objectives
         .map(
           (objective) => `### ${objective.label}
 
 - Status: ${getPolicyStatusLabel(objective.status)}
 - Score: ${objective.score}
-- Evidence: ${getEvidenceLevelLabel(objective.evidence_level)}
-- Primary metrics:
+- Data Support: ${getEvidenceLevelLabel(objective.evidence_level)}
+- Main metrics:
 ${objective.primary_metrics
   .map((metric) => `  - ${metric.label}: ${formatMetricValue(metric.value, metric.unit)}`)
   .join("\n")}
@@ -95,30 +95,30 @@ ${objective.reasons.map((reason) => `  - ${reason}`).join("\n")}`
         .join("\n\n")
 }
 
-## Milestone Gates
+## Phase Checks
 
 ${
   pack.milestone_evaluations.length === 0
-    ? "No milestone gate evaluations were generated for this run."
+    ? "No phase checks were generated for this result."
     : pack.milestone_evaluations
         .map(
           (milestone) => `### ${milestone.label}
 
 - Period: ${milestone.start_period_key} to ${milestone.end_period_key}
 - Status: ${getPolicyStatusLabel(milestone.policy_status)}
-- Treasury pressure (obligations / recognized revenue): ${milestone.summary_metrics.payout_inflow_ratio}
+- Treasury pressure: ${milestone.summary_metrics.payout_inflow_ratio}
 - Reserve runway (months): ${milestone.summary_metrics.reserve_runway_months}
 - Reward concentration top 10%: ${milestone.summary_metrics.reward_concentration_top10_pct}
-- Net treasury delta: ${metricCurrencyFormatter.format(milestone.summary_metrics.company_net_treasury_delta_total)}
-- Strong objectives: ${milestone.strong_objectives.map(getObjectiveLabel).join(", ") || "none"}
-- Weak objectives: ${milestone.weak_objectives.map(getObjectiveLabel).join(", ") || "none"}
+- Net cash change: ${metricCurrencyFormatter.format(milestone.summary_metrics.company_net_treasury_delta_total)}
+- Strong goals: ${milestone.strong_objectives.map(getObjectiveLabel).join(", ") || "none"}
+- Weak goals: ${milestone.weak_objectives.map(getObjectiveLabel).join(", ") || "none"}
 - Reasons:
 ${milestone.reasons.map((reason) => `  - ${reason}`).join("\n")}`
         )
         .join("\n\n")
 }
 
-## Unresolved Questions
+## Open Questions
 
 ${pack.unresolved_questions.map((item) => `- ${item}`).join("\n")}
 `;

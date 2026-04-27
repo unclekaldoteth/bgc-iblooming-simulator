@@ -8,15 +8,19 @@ import {
   evaluateFounderScenarioGuardrails,
   founderSafePassiveCohortAssumptions,
   scenarioCohortAssumptionsSchema,
-  scenarioGuardrailMatrix,
   type ScenarioGuardrailIssue,
+  type AlphaTokenPolicy,
+  type ForecastPolicy,
   type ScenarioCohortAssumptions,
+  type ScenarioSinkAdoptionModel,
   type ScenarioMilestoneScheduleItem,
-  type ScenarioParameters
+  type ScenarioMode,
+  type ScenarioParameters,
+  type Web3Tokenomics
 } from "@bgc-alpha/schemas";
 
 import type { AppSessionUser } from "@/lib/auth-session";
-import { getDataSetStatusLabel, getRunReference } from "@/lib/common-language";
+import { getDataSetStatusLabel, getRunReference, getScenarioModeLabel } from "@/lib/common-language";
 
 /** Locale-proof numeric input — always shows "." as decimal separator */
 function NumericInput({
@@ -87,6 +91,7 @@ type ScenarioRecord = {
   snapshotIdDefault: string | null;
   modelVersionId: string;
   parameterJson: {
+    scenario_mode: ScenarioMode;
     k_pc: number;
     k_sp: number;
     reward_global_factor: number;
@@ -100,13 +105,18 @@ type ScenarioRecord = {
     cashout_windows_per_year: number;
     cashout_window_days: number;
     cohort_assumptions: ScenarioCohortAssumptions;
+    sink_adoption_model: ScenarioSinkAdoptionModel;
     projection_horizon_months: number | null;
     milestone_schedule: ScenarioMilestoneScheduleItem[];
+    alpha_token_policy: AlphaTokenPolicy;
+    forecast_policy: ForecastPolicy;
+    web3_tokenomics: Web3Tokenomics;
   };
   modelVersion: { id: string; versionName: string; status: string; };
   snapshotDefault: {
     id: string;
     name: string;
+    hasDataFingerprint: boolean;
     validationStatus: string;
     importedFactCount: number;
     archivedAt: string | null;
@@ -137,6 +147,7 @@ type BaselineModelRecord = {
 type SnapshotOption = {
   id: string;
   name: string;
+  hasDataFingerprint: boolean;
   validationStatus: string;
   importedFactCount: number;
   archivedAt: string | null;
@@ -158,11 +169,82 @@ type ScenarioConsoleProps = {
   user: AppSessionUser;
 };
 
+const defaultAlphaTokenPolicy: AlphaTokenPolicy = {
+  classification: "internal_credit",
+  phase: "phase_1_internal",
+  transferability: "non_transferable",
+  settlement_unit: "alpha_internal",
+  on_chain_status: "not_on_chain",
+  evidence_standard: "simulation_backed"
+};
+
+const defaultForecastPolicy: ForecastPolicy = {
+  mode: "snapshot_window",
+  actuals_through_period: null,
+  forecast_start_period: null,
+  forecast_basis: "none",
+  stress_case: "none"
+};
+
+const defaultSinkAdoptionModel: ScenarioSinkAdoptionModel = {
+  sink_adoption_rate_pct: 0,
+  eligible_member_share_pct: 0,
+  avg_sink_ticket_usd: 0,
+  sink_frequency_per_month: 0,
+  alpha_payment_share_pct: 100,
+  sink_growth_rate_pct: 0
+};
+
+const defaultWeb3Tokenomics: Web3Tokenomics = {
+  network_status: "not_applicable_internal",
+  supply_model: "not_applicable_internal",
+  max_supply: null,
+  allocation: {
+    community_pct: null,
+    treasury_pct: null,
+    team_pct: null,
+    investor_pct: null,
+    liquidity_pct: null
+  },
+  vesting: {
+    team_cliff_months: null,
+    team_vesting_months: null,
+    investor_cliff_months: null,
+    investor_vesting_months: null
+  },
+  liquidity: {
+    enabled: false,
+    reserve_pct: null,
+    launch_pool_usd: null
+  },
+  governance: {
+    mode: "founder_admin",
+    voting_token_enabled: false
+  },
+  smart_contract: {
+    chain: null,
+    standard: null,
+    audit_status: "not_started"
+  },
+  legal: {
+    classification: "unreviewed",
+    kyc_required: null,
+    jurisdiction_notes: null
+  }
+};
+
+const defaultTokenFlowExtensions = {
+  sink_adoption_model: defaultSinkAdoptionModel,
+  alpha_token_policy: defaultAlphaTokenPolicy,
+  forecast_policy: defaultForecastPolicy,
+  web3_tokenomics: defaultWeb3Tokenomics
+};
+
 const templateDefaults: Record<ScenarioRecord["templateType"], ScenarioRecord["parameterJson"]> = {
-  Baseline: { k_pc: 1, k_sp: 1, reward_global_factor: 1, reward_pool_factor: 1, cap_user_monthly: "2500", cap_group_monthly: "25000", sink_target: 0.3, cashout_mode: "WINDOWS", cashout_min_usd: 25, cashout_fee_bps: 150, cashout_windows_per_year: 4, cashout_window_days: 7, cohort_assumptions: scenarioCohortAssumptionsSchema.parse({}), projection_horizon_months: null, milestone_schedule: [] },
-  Conservative: { k_pc: 0.8, k_sp: 0.8, reward_global_factor: 0.85, reward_pool_factor: 0.85, cap_user_monthly: "1800", cap_group_monthly: "18000", sink_target: 0.4, cashout_mode: "WINDOWS", cashout_min_usd: 50, cashout_fee_bps: 250, cashout_windows_per_year: 2, cashout_window_days: 5, cohort_assumptions: { new_members_per_month: 1, monthly_churn_rate_pct: 2, monthly_reactivation_rate_pct: 1, affiliate_new_member_share_pct: 20, cross_app_adoption_rate_pct: 15, new_member_value_factor: 0.55, reactivated_member_value_factor: 0.7 }, projection_horizon_months: null, milestone_schedule: [] },
-  Growth: { k_pc: 1.2, k_sp: 1.2, reward_global_factor: 1.15, reward_pool_factor: 1.15, cap_user_monthly: "3000", cap_group_monthly: "30000", sink_target: 0.25, cashout_mode: "WINDOWS", cashout_min_usd: 25, cashout_fee_bps: 100, cashout_windows_per_year: 6, cashout_window_days: 7, cohort_assumptions: { new_members_per_month: 2, monthly_churn_rate_pct: 2.5, monthly_reactivation_rate_pct: 1.5, affiliate_new_member_share_pct: 25, cross_app_adoption_rate_pct: 20, new_member_value_factor: 0.65, reactivated_member_value_factor: 0.75 }, projection_horizon_months: null, milestone_schedule: [] },
-  Stress: { k_pc: 0.65, k_sp: 0.7, reward_global_factor: 0.7, reward_pool_factor: 0.75, cap_user_monthly: "1200", cap_group_monthly: "12000", sink_target: 0.5, cashout_mode: "WINDOWS", cashout_min_usd: 75, cashout_fee_bps: 400, cashout_windows_per_year: 1, cashout_window_days: 3, cohort_assumptions: { new_members_per_month: 0, monthly_churn_rate_pct: 4, monthly_reactivation_rate_pct: 0.5, affiliate_new_member_share_pct: 10, cross_app_adoption_rate_pct: 10, new_member_value_factor: 0.45, reactivated_member_value_factor: 0.6 }, projection_horizon_months: null, milestone_schedule: [] },
+  Baseline: { scenario_mode: "founder_safe", k_pc: 1, k_sp: 1, reward_global_factor: 1, reward_pool_factor: 1, cap_user_monthly: "2500", cap_group_monthly: "25000", sink_target: 0.3, cashout_mode: "WINDOWS", cashout_min_usd: 25, cashout_fee_bps: 150, cashout_windows_per_year: 4, cashout_window_days: 7, cohort_assumptions: scenarioCohortAssumptionsSchema.parse({}), projection_horizon_months: null, milestone_schedule: [], ...defaultTokenFlowExtensions },
+  Conservative: { scenario_mode: "founder_safe", k_pc: 0.8, k_sp: 0.8, reward_global_factor: 0.85, reward_pool_factor: 0.85, cap_user_monthly: "1800", cap_group_monthly: "18000", sink_target: 0.4, cashout_mode: "WINDOWS", cashout_min_usd: 50, cashout_fee_bps: 250, cashout_windows_per_year: 2, cashout_window_days: 5, cohort_assumptions: { new_members_per_month: 1, monthly_churn_rate_pct: 2, monthly_reactivation_rate_pct: 1, affiliate_new_member_share_pct: 20, cross_app_adoption_rate_pct: 15, new_member_value_factor: 0.55, reactivated_member_value_factor: 0.7 }, projection_horizon_months: null, milestone_schedule: [], ...defaultTokenFlowExtensions },
+  Growth: { scenario_mode: "founder_safe", k_pc: 1.2, k_sp: 1.2, reward_global_factor: 1.15, reward_pool_factor: 1.15, cap_user_monthly: "3000", cap_group_monthly: "30000", sink_target: 0.25, cashout_mode: "WINDOWS", cashout_min_usd: 25, cashout_fee_bps: 100, cashout_windows_per_year: 6, cashout_window_days: 7, cohort_assumptions: { new_members_per_month: 2, monthly_churn_rate_pct: 2.5, monthly_reactivation_rate_pct: 1.5, affiliate_new_member_share_pct: 25, cross_app_adoption_rate_pct: 20, new_member_value_factor: 0.65, reactivated_member_value_factor: 0.75 }, projection_horizon_months: null, milestone_schedule: [], ...defaultTokenFlowExtensions },
+  Stress: { scenario_mode: "founder_safe", k_pc: 0.65, k_sp: 0.7, reward_global_factor: 0.7, reward_pool_factor: 0.75, cap_user_monthly: "1200", cap_group_monthly: "12000", sink_target: 0.5, cashout_mode: "WINDOWS", cashout_min_usd: 75, cashout_fee_bps: 400, cashout_windows_per_year: 1, cashout_window_days: 3, cohort_assumptions: { new_members_per_month: 0, monthly_churn_rate_pct: 4, monthly_reactivation_rate_pct: 0.5, affiliate_new_member_share_pct: 10, cross_app_adoption_rate_pct: 10, new_member_value_factor: 0.45, reactivated_member_value_factor: 0.6 }, projection_horizon_months: null, milestone_schedule: [], ...defaultTokenFlowExtensions },
 };
 
 const templateDescriptions: Record<ScenarioRecord["templateType"], string> = {
@@ -221,6 +303,25 @@ function ChevronIcon() {
       <polyline points="6 9 12 15 18 9" />
     </svg>
   );
+}
+
+function GuardrailBadge({
+  children,
+  tone
+}: {
+  children: string;
+  tone: "editable" | "assumption" | "locked" | "review";
+}) {
+  const badgeClass =
+    tone === "editable"
+      ? "badge--candidate"
+      : tone === "locked"
+        ? "badge--neutral"
+        : tone === "review"
+          ? "badge--info"
+          : "badge--risky";
+
+  return <span className={`badge ${badgeClass} guardrail-badge`}>{children}</span>;
 }
 
 function getTemplateBadgeClass(template: string) {
@@ -357,6 +458,8 @@ function getRunLaunchErrorMessage(
       return `Approve the selected data set before running ${scenarioName}.`;
     case "snapshot_has_no_facts":
       return `Import rows into the selected data set before running ${scenarioName}.`;
+    case "snapshot_missing_data_fingerprint":
+      return `Re-import the selected data set before running ${scenarioName}; P0 integrity fingerprint is missing.`;
     case "scenario_not_found":
       return `${scenarioName} could not be found. Refresh and try again.`;
     case "scenario_archived":
@@ -366,7 +469,7 @@ function getRunLaunchErrorMessage(
     case "scenario_guardrail_failed":
       return formatGuardrailIssueMessage(
         guardrailIssues,
-        `${scenarioName} still contains locked founder-unsafe parameters. Update the scenario before running it.`
+        `${scenarioName} still has locked fields. Update the scenario before running it.`
       );
     default:
       return `Run failed for ${scenarioName}.`;
@@ -397,11 +500,14 @@ function getDraftRunDisabledReason(
   if (snapshot.archivedAt) {
     return "The selected data set is archived. Unarchive it before running this scenario.";
   }
-  if (snapshot.validationStatus !== "APPROVED") {
-    return "Approve the default data set before running this scenario.";
-  }
   if (snapshot.importedFactCount === 0) {
     return "Import rows into the default data set before running this scenario.";
+  }
+  if (!snapshot.hasDataFingerprint) {
+    return "Re-import the default data set so P0 can write its data fingerprint, then validate and approve it.";
+  }
+  if (snapshot.validationStatus !== "APPROVED") {
+    return "Validate and approve the default data set before running this scenario.";
   }
   return null;
 }
@@ -430,14 +536,33 @@ function getSavedScenarioRunDisabledReason(
   if (scenario.snapshotDefault.archivedAt) {
     return "The default data set is archived. Unarchive it before running this scenario.";
   }
-  if (scenario.snapshotDefault.validationStatus !== "APPROVED") {
-    return "Approve the default data set before running this scenario.";
-  }
   if (scenario.snapshotDefault.importedFactCount === 0) {
     return "Import rows into the default data set before running this scenario.";
   }
+  if (!scenario.snapshotDefault.hasDataFingerprint) {
+    return "Re-import the default data set so P0 can write its data fingerprint, then validate and approve it.";
+  }
+  if (scenario.snapshotDefault.validationStatus !== "APPROVED") {
+    return "Validate and approve the default data set before running this scenario.";
+  }
 
   return null;
+}
+
+function isSnapshotRunReady(snapshot: Pick<SnapshotOption, "archivedAt" | "hasDataFingerprint" | "importedFactCount" | "validationStatus">) {
+  return (
+    !snapshot.archivedAt &&
+    snapshot.validationStatus === "APPROVED" &&
+    snapshot.importedFactCount > 0 &&
+    snapshot.hasDataFingerprint
+  );
+}
+
+function formatSnapshotOptionLabel(snapshot: SnapshotOption) {
+  const readiness = isSnapshotRunReady(snapshot) ? "run-ready" : "not run-ready";
+  const integrity = snapshot.hasDataFingerprint ? "integrity OK" : "missing fingerprint";
+
+  return `${snapshot.name} (${getDataSetStatusLabel(snapshot.validationStatus)}, ${integrity}, ${readiness}, ${snapshot.importedFactCount.toLocaleString()} rows)`;
 }
 
 export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: ScenarioConsoleProps) {
@@ -613,6 +738,59 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
     runReadyScenarioId === editingScenarioId &&
     !hasScenarioChanges;
   const p = formState.parameters;
+  const isAdvancedForecastMode = p.scenario_mode === "advanced_forecast";
+  const isFounderSafeMode = !isAdvancedForecastMode;
+  const scenarioModeBadgeClass = isAdvancedForecastMode ? "badge--risky" : "badge--info";
+
+  function updateScenarioMode(nextMode: ScenarioMode) {
+    setFormState((current) => {
+      const nextForecastPolicy: ForecastPolicy =
+        nextMode === "advanced_forecast"
+          ? {
+              ...current.parameters.forecast_policy,
+              mode: "cohort_projection",
+              forecast_basis: "cohort_assumption"
+            }
+          : {
+              ...current.parameters.forecast_policy,
+              mode: "snapshot_window",
+              forecast_basis: "none"
+            };
+      const nextParameters: ScenarioParameters = {
+        ...current.parameters,
+        scenario_mode: nextMode,
+        cohort_assumptions:
+          nextMode === "founder_safe"
+            ? { ...founderSafePassiveCohortAssumptions }
+            : current.parameters.cohort_assumptions,
+        forecast_policy: nextForecastPolicy
+      };
+      const sanitizedParameters = sanitizeScenarioParameters(
+        nextParameters,
+        baselineModels,
+        current.modelVersionId
+      );
+
+      return {
+        ...current,
+        parameters: sanitizedParameters,
+        milestones: [...sanitizedParameters.milestone_schedule]
+      };
+    });
+  }
+
+  function updateCohortAssumptions(nextValues: Partial<ScenarioCohortAssumptions>) {
+    setFormState((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        cohort_assumptions: {
+          ...current.parameters.cohort_assumptions,
+          ...nextValues
+        }
+      }
+    }));
+  }
 
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
@@ -801,10 +979,10 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               </div>
 
               <label className="field">
-                <span>Default snapshot</span>
+                <span>Snapshot default</span>
                 <select disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, snapshotIdDefault: e.target.value }))} value={formState.snapshotIdDefault}>
                   <option value="">None</option>
-                  {activeSnapshots.map((s) => <option key={s.id} value={s.id}>{s.name} ({getDataSetStatusLabel(s.validationStatus)}, {s.importedFactCount.toLocaleString()} rows)</option>)}
+                  {activeSnapshots.map((s) => <option key={s.id} value={s.id}>{formatSnapshotOptionLabel(s)}</option>)}
                 </select>
               </label>
 
@@ -813,57 +991,62 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 <input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, description: e.target.value }))} value={formState.description} placeholder="Optional notes about this scenario" />
               </label>
 
-              <div
-                className="card"
-                style={{
-                  background: "var(--surface-subtle)",
-                  borderStyle: "dashed",
-                  display: "grid",
-                  gap: "0.65rem",
-                  marginBottom: "0.25rem",
-                  padding: "0.9rem"
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.75rem", alignItems: "flex-start" }}>
-                  <div>
-                    <h4 style={{ margin: 0, fontSize: "0.9rem" }}>Founder-Safe Scenario Guardrails</h4>
-                    <p className="muted" style={{ fontSize: "0.78rem", margin: "0.25rem 0 0" }}>
-                      Understanding-doc truth stays fixed. Scenario only changes ALPHA policy levers that remain defensible.
-                    </p>
+              <div className="scenario-safety-banner" data-status={currentScenarioGuardrailError ? "error" : "ok"}>
+                <div className="scenario-safety-copy">
+                  <div className="scenario-safety-heading">
+                    <span className={`badge ${scenarioModeBadgeClass}`}>
+                      {getScenarioModeLabel(p.scenario_mode)}
+                    </span>
+                    <strong>{isAdvancedForecastMode ? "Forecast is on" : "Imported data stays unchanged"}</strong>
                   </div>
-                  <span className="badge badge--neutral">Founder Mode</span>
+                  <p className="muted">
+                    {isAdvancedForecastMode
+                      ? "You can enter growth assumptions. Treat the run result as an estimate."
+                      : "The run uses imported data. Scenario edits only change simulation rules."}
+                  </p>
+                </div>
+                <div className="scenario-mode-toggle" role="group" aria-label="Scenario mode">
+                  <button
+                    className="scenario-mode-option"
+                    data-active={isFounderSafeMode}
+                    disabled={!canWrite || isPending}
+                    onClick={() => updateScenarioMode("founder_safe")}
+                    type="button"
+                  >
+                    Imported Data Only
+                  </button>
+                  <button
+                    className="scenario-mode-option"
+                    data-active={isAdvancedForecastMode}
+                    disabled={!canWrite || isPending}
+                    onClick={() => updateScenarioMode("advanced_forecast")}
+                    type="button"
+                  >
+                    Add Forecast
+                  </button>
+                </div>
+                <div className="scenario-safety-rules" aria-label="Scenario mode summary">
+                  <span><strong>Editable</strong> Conversion, limits</span>
+                  <span><strong>Assumption</strong> Sink, cash-out, Web3</span>
+                  <span>
+                    <strong>{isAdvancedForecastMode ? "Forecast" : "Locked"}</strong>{" "}
+                    {isAdvancedForecastMode ? "Member growth" : "Reward formula, growth"}
+                  </span>
                 </div>
                 {currentScenarioGuardrailError ? (
-                  <p style={{ color: "var(--status-risky)", fontSize: "0.78rem", margin: 0 }}>
+                  <p className="scenario-safety-error">
                     {currentScenarioGuardrailError.message}
                   </p>
                 ) : null}
-                <div style={{ display: "grid", gap: "0.45rem" }}>
-                  {(["allowed", "conditional", "not_safe"] as const).map((status) => {
-                    const entries = scenarioGuardrailMatrix.filter((entry) => entry.status === status);
-                    const title =
-                      status === "allowed"
-                        ? "Allowed"
-                        : status === "conditional"
-                          ? "Assumption"
-                          : "Locked";
-
-                    return (
-                      <div key={status}>
-                        <p style={{ margin: "0 0 0.2rem", fontSize: "0.76rem", fontWeight: 600 }}>{title}</p>
-                        <p className="muted" style={{ fontSize: "0.76rem", margin: 0, lineHeight: 1.5 }}>
-                          {entries.map((entry) => entry.parameter_key).join(", ")}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
               </div>
 
               {/* Accordion: Conversion Rules */}
               <div className="accordion-section" data-open={openSections.has("conversion")}>
                 <button className="accordion-header" onClick={() => toggleSection("conversion")} type="button">
-                  Conversion Rules
+                  <span className="accordion-title">
+                    ALPHA Conversion
+                    <GuardrailBadge tone="editable">Editable</GuardrailBadge>
+                  </span>
                   <span className="accordion-summary">k_pc: {p.k_pc} · k_sp: {p.k_sp}</span>
                   <ChevronIcon />
                 </button>
@@ -871,11 +1054,11 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                   <div className="accordion-body">
                     <div className="parameter-grid">
                       <label className="field">
-                        <span>k_pc (reward multiplier for PC)</span>
+                        <span>PC to ALPHA multiplier</span>
                         <NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, k_pc: val } }))} step="0.01" value={p.k_pc} />
                       </label>
                       <label className="field">
-                        <span>k_sp (reward multiplier for SP)</span>
+                        <span>SP to ALPHA multiplier</span>
                         <NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, k_sp: val } }))} step="0.01" value={p.k_sp} />
                       </label>
                     </div>
@@ -886,27 +1069,168 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               {/* Accordion: Reward Settings */}
               <div className="accordion-section" data-open={openSections.has("reward")}>
                 <button className="accordion-header" onClick={() => toggleSection("reward")} type="button">
-                  Reward Settings
-                  <span className="accordion-summary">Caps + sink · reward factors locked</span>
+                  <span className="accordion-title">
+                    Rewards & Limits
+                    <GuardrailBadge tone="review">Partly locked</GuardrailBadge>
+                  </span>
+                  <span className="accordion-summary">Limits editable · reward formula locked</span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("reward") ? (
                   <div className="accordion-body">
                     <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
-                      Generic global/pool reward multipliers are locked to the neutral baseline model values so the scenario cannot rewrite named reward sources from the understanding document.
+                      These two reward factors are locked because they are part of the core reward formula. Add Forecast only unlocks growth assumptions; it does not change the core reward formula. You can change user limit, group limit, and internal-use target here.
                     </p>
                     <div className="parameter-grid">
                       <label className="field">
-                        <span>Global reward factor</span>
+                        <span>Global reward factor (locked)</span>
                         <input disabled value={String(p.reward_global_factor)} />
                       </label>
                       <label className="field">
-                        <span>Pool reward factor</span>
+                        <span>Pool reward factor (locked)</span>
                         <input disabled value={String(p.reward_pool_factor)} />
                       </label>
-                      <label className="field"><span>User monthly cap ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_user_monthly: e.target.value } }))} value={p.cap_user_monthly} /></label>
-                      <label className="field"><span>Group monthly cap ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_group_monthly: e.target.value } }))} value={p.cap_group_monthly} /></label>
-                      <label className="field"><span>Sink target (%)</span><NumericInput disabled={!canWrite || isPending} min="0" max="1" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, sink_target: val } }))} step="0.01" value={p.sink_target} /></label>
+                      <label className="field"><span>User monthly limit ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_user_monthly: e.target.value } }))} value={p.cap_user_monthly} /></label>
+                      <label className="field"><span>Group monthly limit ($)</span><input disabled={!canWrite || isPending} onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, cap_group_monthly: e.target.value } }))} value={p.cap_group_monthly} /></label>
+                      <label className="field"><span>Internal-use target (%)</span><NumericInput disabled={!canWrite || isPending} min="0" max="1" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, sink_target: val } }))} step="0.01" value={p.sink_target} /></label>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Accordion: Sink Adoption */}
+              <div className="accordion-section" data-open={openSections.has("sink-adoption")}>
+                <button className="accordion-header" onClick={() => toggleSection("sink-adoption")} type="button">
+                  <span className="accordion-title">
+                    Sink Adoption
+                    <GuardrailBadge tone="assumption">Forecast assumption</GuardrailBadge>
+                  </span>
+                  <span className="accordion-summary">{p.sink_adoption_model.sink_adoption_rate_pct}% adoption · ${p.sink_adoption_model.avg_sink_ticket_usd} ticket</span>
+                  <ChevronIcon />
+                </button>
+                {openSections.has("sink-adoption") ? (
+                  <div className="accordion-body">
+                    <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
+                      This adds estimated internal use. Actual sink_spend_usd stays separate from forecast numbers.
+                    </p>
+                    <div className="parameter-grid">
+                      <label className="field">
+                        <span>Sink adoption rate (%)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          max="100"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                sink_adoption_rate_pct: val
+                              }
+                            }
+                          }))}
+                          step="1"
+                          value={p.sink_adoption_model.sink_adoption_rate_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Eligible members (%)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          max="100"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                eligible_member_share_pct: val
+                              }
+                            }
+                          }))}
+                          step="1"
+                          value={p.sink_adoption_model.eligible_member_share_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Avg sink ticket ($)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                avg_sink_ticket_usd: val
+                              }
+                            }
+                          }))}
+                          step="1"
+                          value={p.sink_adoption_model.avg_sink_ticket_usd}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Frequency / month</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                sink_frequency_per_month: val
+                              }
+                            }
+                          }))}
+                          step="0.1"
+                          value={p.sink_adoption_model.sink_frequency_per_month}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>ALPHA payment share (%)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          max="100"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                alpha_payment_share_pct: val
+                              }
+                            }
+                          }))}
+                          step="1"
+                          value={p.sink_adoption_model.alpha_payment_share_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Sink growth / month (%)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="-100"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              sink_adoption_model: {
+                                ...c.parameters.sink_adoption_model,
+                                sink_growth_rate_pct: val
+                              }
+                            }
+                          }))}
+                          step="1"
+                          value={p.sink_adoption_model.sink_growth_rate_pct}
+                        />
+                      </label>
                     </div>
                   </div>
                 ) : null}
@@ -915,7 +1239,10 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               {/* Accordion: Cash-Out Policy */}
               <div className="accordion-section" data-open={openSections.has("cashout")}>
                 <button className="accordion-header" onClick={() => toggleSection("cashout")} type="button">
-                  Cash-Out Policy
+                  <span className="accordion-title">
+                    Cash-Out Policy
+                    <GuardrailBadge tone="assumption">Assumption</GuardrailBadge>
+                  </span>
                   <span className="accordion-summary">{p.cashout_mode === "WINDOWS" ? `Windowed · ${p.cashout_windows_per_year}x/yr` : "Always Open"} · ${p.cashout_min_usd} min</span>
                   <ChevronIcon />
                 </button>
@@ -935,21 +1262,275 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               {/* Accordion: Growth Assumptions */}
               <div className="accordion-section" data-open={openSections.has("cohort")}>
                 <button className="accordion-header" onClick={() => toggleSection("cohort")} type="button">
-                  Growth Projection
-                  <span className="accordion-summary">Locked off for founder-safe mode</span>
+                  <span className="accordion-title">
+                    Growth Forecast
+                    <GuardrailBadge tone={isFounderSafeMode ? "locked" : "assumption"}>
+                      {isFounderSafeMode ? "Locked" : "Forecast assumption"}
+                    </GuardrailBadge>
+                  </span>
+                  <span className="accordion-summary">
+                    {isFounderSafeMode
+                      ? "Locked in Imported Data Only"
+                      : `${p.cohort_assumptions.new_members_per_month} new/mo · ${p.cohort_assumptions.monthly_churn_rate_pct}% churn`}
+                  </span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("cohort") ? (
                   <div className="accordion-body">
                     <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
-                      Synthetic member growth, churn, and reactivation are disabled in founder-safe mode because they are not faithful to understanding-doc event logic.
+                      {isFounderSafeMode
+                        ? "New member, churn, and reactivation assumptions are locked when the run uses imported data only. Switch to Add Forecast if you want to model growth."
+                        : "Enter growth assumptions here. These numbers are estimates and do not change imported data."}
                     </p>
                     <div className="parameter-grid">
-                      <label className="field"><span>New members/month</span><input disabled value={String(founderSafePassiveCohortAssumptions.new_members_per_month)} /></label>
-                      <label className="field"><span>Monthly churn (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.monthly_churn_rate_pct)} /></label>
-                      <label className="field"><span>Reactivation rate (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.monthly_reactivation_rate_pct)} /></label>
-                      <label className="field"><span>Affiliate share (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.affiliate_new_member_share_pct)} /></label>
-                      <label className="field"><span>Cross-app adoption (%)</span><input disabled value={String(founderSafePassiveCohortAssumptions.cross_app_adoption_rate_pct)} /></label>
+                      <label className="field">
+                        <span>New members / month</span>
+                        <NumericInput
+                          disabled={isFounderSafeMode || !canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateCohortAssumptions({ new_members_per_month: Math.max(0, Math.round(val)) })}
+                          value={p.cohort_assumptions.new_members_per_month}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Monthly churn (%)</span>
+                        <NumericInput
+                          disabled={isFounderSafeMode || !canWrite || isPending}
+                          max="100"
+                          min="0"
+                          onChange={(val) => updateCohortAssumptions({ monthly_churn_rate_pct: val })}
+                          step="0.1"
+                          value={p.cohort_assumptions.monthly_churn_rate_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Reactivation (%)</span>
+                        <NumericInput
+                          disabled={isFounderSafeMode || !canWrite || isPending}
+                          max="100"
+                          min="0"
+                          onChange={(val) => updateCohortAssumptions({ monthly_reactivation_rate_pct: val })}
+                          step="0.1"
+                          value={p.cohort_assumptions.monthly_reactivation_rate_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Affiliate share (%)</span>
+                        <NumericInput
+                          disabled={isFounderSafeMode || !canWrite || isPending}
+                          max="100"
+                          min="0"
+                          onChange={(val) => updateCohortAssumptions({ affiliate_new_member_share_pct: val })}
+                          step="0.1"
+                          value={p.cohort_assumptions.affiliate_new_member_share_pct}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Cross-app active (%)</span>
+                        <NumericInput
+                          disabled={isFounderSafeMode || !canWrite || isPending}
+                          max="100"
+                          min="0"
+                          onChange={(val) => updateCohortAssumptions({ cross_app_adoption_rate_pct: val })}
+                          step="0.1"
+                          value={p.cohort_assumptions.cross_app_adoption_rate_pct}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* Accordion: Token Flow & Web3 */}
+              <div className="accordion-section" data-open={openSections.has("token-flow")}>
+                <button className="accordion-header" onClick={() => toggleSection("token-flow")} type="button">
+                  <span className="accordion-title">
+                    Token Flow & Web3
+                    <GuardrailBadge tone="review">Needs review</GuardrailBadge>
+                  </span>
+                  <span className="accordion-summary">{p.alpha_token_policy.classification.replace(/_/g, " ")} · {p.web3_tokenomics.network_status.replace(/_/g, " ")}</span>
+                  <ChevronIcon />
+                </button>
+                {openSections.has("token-flow") ? (
+                  <div className="accordion-body">
+                    <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
+                      These settings control how ALPHA is described in Token Flow and Whitepaper outputs. Internal non-transferable defaults are safest for phase 1; public Web3 assumptions need extra review.
+                    </p>
+                    <div className="parameter-grid">
+                      <label className="field">
+                        <span>ALPHA classification</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              alpha_token_policy: {
+                                ...c.parameters.alpha_token_policy,
+                                classification: e.target.value as AlphaTokenPolicy["classification"]
+                              }
+                            }
+                          }))}
+                          value={p.alpha_token_policy.classification}
+                        >
+                          <option value="internal_credit">Internal credit</option>
+                          <option value="points">Points</option>
+                          <option value="off_chain_token">Token off-chain</option>
+                          <option value="future_on_chain_token">Future on-chain token</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Transferability</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              alpha_token_policy: {
+                                ...c.parameters.alpha_token_policy,
+                                transferability: e.target.value as AlphaTokenPolicy["transferability"]
+                              }
+                            }
+                          }))}
+                          value={p.alpha_token_policy.transferability}
+                        >
+                          <option value="non_transferable">Not transferable</option>
+                          <option value="platform_limited">Platform-limited</option>
+                          <option value="externally_transferable">Externally transferable</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Status on-chain</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              alpha_token_policy: {
+                                ...c.parameters.alpha_token_policy,
+                                on_chain_status: e.target.value as AlphaTokenPolicy["on_chain_status"]
+                              }
+                            }
+                          }))}
+                          value={p.alpha_token_policy.on_chain_status}
+                        >
+                          <option value="not_on_chain">Not on-chain</option>
+                          <option value="planned">Planned</option>
+                          <option value="testnet">Testnet</option>
+                          <option value="mainnet">Mainnet</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Mode forecast</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              forecast_policy: {
+                                ...c.parameters.forecast_policy,
+                                mode: e.target.value as ForecastPolicy["mode"],
+                                forecast_basis: e.target.value === "snapshot_window" ? "none" : "repeat_snapshot"
+                              }
+                            }
+                          }))}
+                          value={p.forecast_policy.mode}
+                        >
+                          <option value="snapshot_window">Imported data period only</option>
+                          <option value="projection_overlay">Add projection</option>
+                          <option value="cohort_projection">Member forecast</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Web3 network status</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              web3_tokenomics: {
+                                ...c.parameters.web3_tokenomics,
+                                network_status: e.target.value as Web3Tokenomics["network_status"]
+                              }
+                            }
+                          }))}
+                          value={p.web3_tokenomics.network_status}
+                        >
+                          <option value="not_applicable_internal">Internal only / not applicable</option>
+                          <option value="planned">Planned</option>
+                          <option value="testnet">Testnet</option>
+                          <option value="mainnet">Mainnet</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Supply model</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              web3_tokenomics: {
+                                ...c.parameters.web3_tokenomics,
+                                supply_model: e.target.value as Web3Tokenomics["supply_model"]
+                              }
+                            }
+                          }))}
+                          value={p.web3_tokenomics.supply_model}
+                        >
+                          <option value="not_applicable_internal">Internal only / not applicable</option>
+                          <option value="uncapped_internal">Uncapped internal</option>
+                          <option value="fixed_supply">Fixed supply</option>
+                          <option value="capped_emission">Capped emission</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>Max supply</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              web3_tokenomics: {
+                                ...c.parameters.web3_tokenomics,
+                                max_supply: val > 0 ? val : null
+                              }
+                            }
+                          }))}
+                          value={p.web3_tokenomics.max_supply ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Governance</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => setFormState(c => ({
+                            ...c,
+                            parameters: {
+                              ...c.parameters,
+                              web3_tokenomics: {
+                                ...c.parameters.web3_tokenomics,
+                                governance: {
+                                  ...c.parameters.web3_tokenomics.governance,
+                                  mode: e.target.value as Web3Tokenomics["governance"]["mode"]
+                                }
+                              }
+                            }
+                          }))}
+                          value={p.web3_tokenomics.governance.mode}
+                        >
+                          <option value="founder_admin">Founder admin</option>
+                          <option value="multisig_admin">Multisig admin</option>
+                          <option value="token_voting">Token voting</option>
+                          <option value="dao">DAO</option>
+                        </select>
+                      </label>
                     </div>
                   </div>
                 ) : null}
@@ -958,25 +1539,28 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
               {/* Accordion: Advanced */}
               <div className="accordion-section" data-open={openSections.has("advanced")}>
                 <button className="accordion-header" onClick={() => toggleSection("advanced")} type="button">
-                  Advanced
+                  <span className="accordion-title">
+                    Advanced Settings
+                    <GuardrailBadge tone="assumption">Assumption</GuardrailBadge>
+                  </span>
                   <span className="accordion-summary">{p.projection_horizon_months ? `${p.projection_horizon_months}mo` : "Auto"} · {formState.milestones.length} milestones</span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("advanced") ? (
                   <div className="accordion-body">
                     <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
-                      Projection horizon and milestone schedule are allowed, but they must be presented as scenario assumptions rather than direct consequences of the understanding document.
+                      Horizon and milestones are allowed for simulation. Treat their output as scenario assumptions, not observed data.
                     </p>
                     <label className="field" style={{ marginBottom: "0.5rem" }}>
                       <span>Projection horizon (months)</span>
-                      <small>Leave empty to use the default from the data range.</small>
+                      <small>Leave empty to use the imported data range.</small>
                       <input disabled={!canWrite || isPending} min="1" onChange={(e) => setFormState(c => ({ ...c, parameters: { ...c.parameters, projection_horizon_months: e.target.value ? Number(e.target.value) : null } }))} type="text" inputMode="numeric" pattern="[0-9]*" value={p.projection_horizon_months ?? ""} />
                     </label>
                     <div className="milestone-editor">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
                         <div>
                           <span style={{ fontWeight: 500, fontSize: "0.8rem", color: "var(--text-secondary)" }}>Milestone schedule</span>
-                          <small style={{ display: "block", fontSize: "0.75rem", color: "var(--text-tertiary)", lineHeight: 1.4 }}>Define staged policy changes over time.</small>
+                          <small style={{ display: "block", fontSize: "0.75rem", color: "var(--text-tertiary)", lineHeight: 1.4 }}>Set policy changes by time stage.</small>
                         </div>
                         <button
                           className="ghost-button"
@@ -1157,13 +1741,12 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
             {visibleScenarios.map((scenario) => {
-              const runDisabledReason = scenario.latestRun
-                ? null
-                : getSavedScenarioRunDisabledReason(
-                    scenario,
-                    baselineModels,
-                    canRun
-                  );
+              const scenarioRunBlockReason = getSavedScenarioRunDisabledReason(
+                scenario,
+                baselineModels,
+                canRun
+              );
+              const runDisabledReason = scenario.latestRun ? null : scenarioRunBlockReason;
               const seeResultDisabledReason = !canReadRuns
                 ? "You do not have permission to view simulation results."
                 : null;
@@ -1174,6 +1757,9 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                   <h4 style={{ margin: 0, fontSize: "0.95rem" }}>{scenario.name}</h4>
                   <div style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <span className={`badge ${getTemplateBadgeClass(scenario.templateType)}`}>{scenario.templateType}</span>
+                    <span className={`badge ${scenario.parameterJson.scenario_mode === "advanced_forecast" ? "badge--risky" : "badge--info"}`}>
+                      {getScenarioModeLabel(scenario.parameterJson.scenario_mode)}
+                    </span>
                     {scenario.archivedAt ? <span className="badge badge--neutral">Archived</span> : null}
                   </div>
                 </div>
@@ -1186,6 +1772,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 {scenario.snapshotDefault ? (
                   <p className="muted" style={{ fontSize: "0.75rem", margin: "0 0 0.5rem" }}>
                     <span className={`badge ${scenario.snapshotDefault.validationStatus === "APPROVED" ? "badge--candidate" : "badge--neutral"}`} style={{ fontSize: "0.6rem", marginRight: "0.3rem" }}>{getDataSetStatusLabel(scenario.snapshotDefault.validationStatus)}</span>
+                    {scenario.snapshotDefault.hasDataFingerprint ? <span className="badge badge--info" style={{ fontSize: "0.6rem", marginRight: "0.3rem" }}>Data OK</span> : <span className="badge badge--rejected" style={{ fontSize: "0.6rem", marginRight: "0.3rem" }}>Fingerprint Missing</span>}
                     {scenario.snapshotDefault.archivedAt ? <span className="badge badge--neutral" style={{ fontSize: "0.6rem", marginRight: "0.3rem" }}>Archived Snapshot</span> : null}
                     {scenario.snapshotDefault.name} ({scenario.snapshotDefault.importedFactCount.toLocaleString()} rows)
                   </p>
@@ -1251,6 +1838,15 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                     {scenario.archivedAt ? "Unarchive" : "Archive"}
                   </button>
                 </div>
+                {scenarioRunBlockReason ? (
+                  <p className="muted" style={{ color: "var(--status-risky)", fontSize: "0.72rem", margin: "0.45rem 0 0" }}>
+                    {scenario.latestRun ? "New run blocked" : "Run blocked"}: {scenarioRunBlockReason}
+                  </p>
+                ) : scenario.snapshotDefault ? (
+                  <p className="muted" style={{ color: "var(--status-healthy)", fontSize: "0.72rem", margin: "0.45rem 0 0" }}>
+                    Run-ready: approved snapshot, imported rows, and P0 data fingerprint are complete.
+                  </p>
+                ) : null}
                 </div>
               );
             })}

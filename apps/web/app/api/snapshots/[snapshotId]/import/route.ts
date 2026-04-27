@@ -46,6 +46,17 @@ export async function POST(
     );
   }
 
+  if (snapshot.validationStatus === "APPROVED" && snapshot.dataFingerprint) {
+    return NextResponse.json(
+      {
+        error: "snapshot_approved_immutable"
+      },
+      {
+        status: 409
+      }
+    );
+  }
+
   const latestImportRun = snapshot.importRuns[0];
 
   if (latestImportRun?.status === "RUNNING") {

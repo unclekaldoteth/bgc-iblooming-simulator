@@ -369,6 +369,7 @@ export function resolveBaselineModelRuleset(
 
 export function getBaselineScenarioDefaults(model: BaselineModelRuleset) {
   return {
+    scenario_mode: "founder_safe",
     k_pc: model.defaults.k_pc,
     k_sp: model.defaults.k_sp,
     reward_global_factor: model.defaults.reward_global_factor,
@@ -390,8 +391,68 @@ export function getBaselineScenarioDefaults(model: BaselineModelRuleset) {
       new_member_value_factor: 0.6,
       reactivated_member_value_factor: 0.7
     },
+    sink_adoption_model: {
+      sink_adoption_rate_pct: 0,
+      eligible_member_share_pct: 0,
+      avg_sink_ticket_usd: 0,
+      sink_frequency_per_month: 0,
+      alpha_payment_share_pct: 100,
+      sink_growth_rate_pct: 0
+    },
     projection_horizon_months: null,
-    milestone_schedule: []
+    milestone_schedule: [],
+    alpha_token_policy: {
+      classification: "internal_credit",
+      phase: "phase_1_internal",
+      transferability: "non_transferable",
+      settlement_unit: "alpha_internal",
+      on_chain_status: "not_on_chain",
+      evidence_standard: "simulation_backed"
+    },
+    forecast_policy: {
+      mode: "snapshot_window",
+      actuals_through_period: null,
+      forecast_start_period: null,
+      forecast_basis: "none",
+      stress_case: "none"
+    },
+    web3_tokenomics: {
+      network_status: "not_applicable_internal",
+      supply_model: "not_applicable_internal",
+      max_supply: null,
+      allocation: {
+        community_pct: null,
+        treasury_pct: null,
+        team_pct: null,
+        investor_pct: null,
+        liquidity_pct: null
+      },
+      vesting: {
+        team_cliff_months: null,
+        team_vesting_months: null,
+        investor_cliff_months: null,
+        investor_vesting_months: null
+      },
+      liquidity: {
+        enabled: false,
+        reserve_pct: null,
+        launch_pool_usd: null
+      },
+      governance: {
+        mode: "founder_admin",
+        voting_token_enabled: false
+      },
+      smart_contract: {
+        chain: null,
+        standard: null,
+        audit_status: "not_started"
+      },
+      legal: {
+        classification: "unreviewed",
+        kyc_required: null,
+        jurisdiction_notes: null
+      }
+    }
   } as const;
 }
 

@@ -10,6 +10,7 @@ import {
   type MilestoneEvaluation,
   type DecisionPackRecommendedSetup,
   type DecisionPackTruthAssumptionItem,
+  type TokenFlowEvidencePack,
   type StrategicMetricUnit,
   type StrategicObjectiveKey,
   type StrategicObjectiveScorecard
@@ -84,6 +85,10 @@ export function readTruthAssumptionMatrix(value: unknown): DecisionPackTruthAssu
 
 export function readCanonicalGapAudit(value: unknown): CanonicalGapAudit | null {
   return readDecisionPack(value)?.canonical_gap_audit ?? null;
+}
+
+export function readTokenFlowEvidence(value: unknown): TokenFlowEvidencePack | null {
+  return readDecisionPack(value)?.token_flow_evidence ?? null;
 }
 
 export type DecisionLogDisplayEntry = DecisionPackDecisionLogEntry & {

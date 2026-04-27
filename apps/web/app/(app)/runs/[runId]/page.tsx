@@ -21,7 +21,10 @@ import {
   getPolicyStatusLabel,
   getRiskSeverityLabel,
   getRunReference,
-  getRunStatusLabel
+  getScenarioModeCaveat,
+  getScenarioModeLabel,
+  getRunStatusLabel,
+  simplifyResultText
 } from "@/lib/common-language";
 import {
   formatSummaryMetricValue,
@@ -55,6 +58,8 @@ const businessOutcomeMetricKeys = [
 const alphaOutcomeMetricKeys = [
   "alpha_issued_total",
   "alpha_spent_total",
+  "alpha_actual_spent_total",
+  "alpha_modeled_spent_total",
   "alpha_held_total",
   "alpha_cashout_equivalent_total"
 ] as const satisfies readonly SummaryMetricKey[];
@@ -102,6 +107,7 @@ export default async function RunDetailPage({
     reward_global_factor: baselineModel.defaults.reward_global_factor,
     reward_pool_factor: baselineModel.defaults.reward_pool_factor
   });
+  const scenarioModeCaveat = getScenarioModeCaveat(scenarioParameters.scenario_mode);
   const failureMessage = run.status === "FAILED" ? run.runNotes?.trim() || "Run failed without a recorded error." : null;
   const activeRefresh = run.status === "QUEUED" || run.status === "RUNNING" || (run.status === "COMPLETED" && !decisionPack);
   const inlineResumeEnabled = Boolean(process.env.VERCEL) && user.capabilities.includes("runs.write");
@@ -126,29 +132,35 @@ export default async function RunDetailPage({
       <RunStatusRefresh active={activeRefresh} inlineResumeEnabled={inlineResumeEnabled} runId={run.id} />
       <PageHeader
         eyebrow="Simulation Result"
-        title={`Run Summary · ${getRunReference(runId)}`}
-        description="Executive result, business outcome, ALPHA outcome, treasury health, and audit metrics."
+        title={`Result Summary · ${getRunReference(runId)}`}
+        description="Main result: money, ALPHA flow, treasury safety, goals, and data quality."
       />
 
       {/* Tab-like navigation */}
       <nav className="tab-nav">
         <Link href={`/runs/${run.id}`} className="tab-item active">Summary</Link>
         <Link href={`/distribution/${run.id}`} className="tab-item">Distribution</Link>
+        <Link href={`/token-flow/${run.id}`} className="tab-item">Token Flow</Link>
         <Link href={`/treasury/${run.id}`} className="tab-item">Treasury</Link>
         <Link href={`/decision-pack/${run.id}`} className="tab-item">Decision Pack</Link>
       </nav>
 
       <section className="page-grid">
-        {/* Executive Result */}
-        <Card className="span-12" title="Executive Result">
+        {/* Result Summary */}
+        <Card className="span-12" title="Result Summary">
           <div className="decision-summary">
             <div className="decision-summary__verdict">
               <span className="verdict-label" data-status={verdictStatus}>
                 {getPolicyStatusLabel(policyStatusLabel)}
               </span>
               <p>
-                {failureMessage ?? decisionPack?.recommendation ?? "Simulation result is available. Decision pack recommendation is pending."}
+                {simplifyResultText(failureMessage ?? decisionPack?.recommendation) || "Simulation result is available. Decision recommendation is not ready yet."}
               </p>
+              {scenarioModeCaveat ? (
+                <p className="muted" style={{ marginTop: "0.5rem" }}>
+                  {scenarioModeCaveat}
+                </p>
+              ) : null}
             </div>
             <div className="decision-summary__meta">
               <div>
@@ -160,31 +172,35 @@ export default async function RunDetailPage({
                 <strong>{run.snapshot.name}</strong>
               </div>
               <div>
-                <span>Rule Set</span>
+                <span>Rules</span>
                 <strong>{run.modelVersion.versionName}</strong>
               </div>
               <div>
-                <span>Run Status</span>
+                <span>Result Status</span>
                 <strong>{getRunStatusLabel(run.status)}</strong>
               </div>
               <div>
-                <span>Horizon</span>
+                <span>Mode</span>
+                <strong>{getScenarioModeLabel(scenarioParameters.scenario_mode)}</strong>
+              </div>
+              <div>
+                <span>Time Range</span>
                 <strong>{formatPlanningHorizonLabel(scenarioParameters.projection_horizon_months)}</strong>
               </div>
               <div>
-                <span>Scenario Growth</span>
+                <span>Growth Settings</span>
                 <strong>
-                  {scenarioParameters.cohort_assumptions.new_members_per_month} new/mo · {scenarioParameters.cohort_assumptions.monthly_churn_rate_pct}% churn
+                  {scenarioParameters.cohort_assumptions.new_members_per_month} new/month · {scenarioParameters.cohort_assumptions.monthly_churn_rate_pct}% churn
                 </strong>
               </div>
             </div>
           </div>
         </Card>
 
-        {/* Business Outcome */}
-        <Card className="span-12" title="Business Outcome">
+        {/* Money Summary */}
+        <Card className="span-12" title="Money Summary">
           <p className="card-intro">
-            Company cashflow outcome from the simulation. Fiat and cashflow values are shown in $.
+            Money outcome from this result. Dollar values are shown in USD.
           </p>
           <div className="decision-kpi-grid decision-kpi-grid--four">
             {businessOutcomeMetrics.map((metric) => (
@@ -196,10 +212,10 @@ export default async function RunDetailPage({
           </div>
         </Card>
 
-        {/* ALPHA Outcome */}
-        <Card className="span-12" title="ALPHA Outcome">
+        {/* ALPHA Flow */}
+        <Card className="span-12" title="ALPHA Flow">
           <p className="card-intro">
-            Policy-token layer kept separate from company cashflow.
+            ALPHA movement, kept separate from company cash.
           </p>
           <div className="alpha-outcome-layout">
             <AlphaDistributionChart metrics={orderedSummaryMetrics.map((m) => ({ key: m.key, value: m.value }))} />
@@ -215,7 +231,7 @@ export default async function RunDetailPage({
         </Card>
 
         {/* Health Signals */}
-        <Card className="span-8" title="Health & Risk Signals">
+        <Card className="span-8" title="Treasury Safety Signals">
           <div className="gauge-grid">
             {healthSignalMetrics.map((metric) => (
               <div className="gauge-card" data-status={getGaugeStatus(metric.key, metric.value)} key={metric.id}>
@@ -227,9 +243,9 @@ export default async function RunDetailPage({
           </div>
         </Card>
 
-        {/* Risk Flags */}
-        <Card className="span-4" title="Risk Flags">
-          {failureMessage ? <p className="error-text">{failureMessage}</p> : null}
+        {/* Warnings */}
+        <Card className="span-4" title="Warnings">
+          {failureMessage ? <p className="error-text">{simplifyResultText(failureMessage)}</p> : null}
           {!failureMessage && run.flags.length === 0 ? (
             <p className="muted" style={{ fontSize: "0.85rem" }}>No risk warnings.</p>
           ) : null}
@@ -238,24 +254,24 @@ export default async function RunDetailPage({
               {run.flags.map((flag) => (
                 <div className="flag-item" data-severity={flag.severity === "ERROR" ? "critical" : flag.severity === "WARNING" ? "warning" : "info"} key={flag.id}>
                   <span className="flag-label">{getRiskSeverityLabel(flag.severity)}</span>
-                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{flag.message}</div>
+                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{simplifyResultText(flag.message)}</div>
                 </div>
               ))}
             </div>
           ) : null}
           {decisionPack?.recommendation ? (
-            <p style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>{decisionPack.recommendation}</p>
+            <p style={{ marginTop: "0.75rem", fontSize: "0.85rem" }}>{simplifyResultText(decisionPack.recommendation)}</p>
           ) : null}
         </Card>
 
-        {/* Strategic Goals Snapshot */}
-        <Card className="span-12" title="Strategic Goals Snapshot">
+        {/* Goal Snapshot */}
+        <Card className="span-12" title="Goal Snapshot">
           {strategicObjectives.length === 0 ? (
             <p className="muted">Goal scorecards will appear once the recommendation pack is ready.</p>
           ) : (
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Objective</th><th>Assessment</th><th>Evidence</th><th>Score</th></tr></thead>
+                <thead><tr><th>Goal</th><th>Status</th><th>Data Support</th><th>Score</th></tr></thead>
                 <tbody>
                   {strategicObjectives.map((obj) => (
                     <tr key={obj.objective_key}>
@@ -271,14 +287,14 @@ export default async function RunDetailPage({
           )}
         </Card>
 
-        {/* Milestone Snapshot */}
-        <Card className="span-12" title="Milestone Snapshot">
+        {/* Phase Snapshot */}
+        <Card className="span-12" title="Phase Snapshot">
           {milestoneEvaluations.length === 0 ? (
-            <p className="muted">Milestone results will appear once the recommendation pack is ready.</p>
+            <p className="muted">Phase results will appear once the decision recommendation is ready.</p>
           ) : (
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Milestone</th><th>Assessment</th><th>Pressure</th><th>Net Treasury Delta</th><th>Runway</th></tr></thead>
+                <thead><tr><th>Phase</th><th>Status</th><th>Pressure</th><th>Net Cash Change</th><th>Runway</th></tr></thead>
                 <tbody>
                   {milestoneEvaluations.map((ms) => (
                     <tr key={ms.milestone_key}>
@@ -295,10 +311,10 @@ export default async function RunDetailPage({
           )}
         </Card>
 
-        {/* Full Summary Metrics */}
-        <Card className="span-12" title="Full Summary Metrics">
+        {/* Full Metric Details */}
+        <Card className="span-12" title="Full Metric Details">
           <table className="table">
-            <thead><tr><th>Key Metric</th><th>Value</th></tr></thead>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
             <tbody>
               {orderedSummaryMetrics.map((metric) => (
                 <tr key={metric.id}>

@@ -7,6 +7,7 @@ import type {
   ScenarioMilestoneScheduleItem,
   ScenarioParameterOverride,
   ScenarioParameters,
+  ScenarioSinkAdoptionModel,
   SimulationRunRequest,
   SimulationRunResult,
   SummaryMetrics
@@ -161,6 +162,7 @@ type EffectiveScenarioParameters = {
   capUserMonthly: number;
   capGroupMonthly: number;
   sinkTarget: number;
+  sinkAdoptionModel: ScenarioSinkAdoptionModel;
   cashoutMode: "WINDOWS" | "ALWAYS_OPEN";
   cashoutMinUsd: number;
   cashoutFeeBps: number;
@@ -188,6 +190,8 @@ type WorkingFactRow = ProjectedSimulationFact & {
   lifecycleStage: "existing" | "new" | "retained" | "reactivated" | "inactive";
   rawIssued: number;
   issued: number;
+  actualSpent: number;
+  modeledSpent: number;
   spent: number;
   held: number;
   cashout: number;
@@ -212,6 +216,19 @@ type FinancialPeriodLedger = {
   actualPayoutOut: number;
   productFulfillmentOut: number;
   netTreasuryDelta: number;
+};
+
+type TokenFlowPeriodLedger = {
+  periodKey: string;
+  openingBalance: number;
+  issued: number;
+  actualSpent: number;
+  modeledSpent: number;
+  spent: number;
+  cashout: number;
+  expiredBurned: number;
+  endingBalance: number;
+  isProjected: boolean;
 };
 
 type MemberProjectionState = {
@@ -314,6 +331,10 @@ function mergeScenarioParameters(
       ...parameters.cohort_assumptions,
       ...(overrides.cohort_assumptions ?? {})
     },
+    sink_adoption_model: {
+      ...(parameters.sink_adoption_model ?? {}),
+      ...(overrides.sink_adoption_model ?? {})
+    },
     projection_horizon_months: parameters.projection_horizon_months ?? null,
     milestone_schedule: parameters.milestone_schedule ?? []
   };
@@ -339,6 +360,7 @@ function buildEffectiveParameters(
       baselineModel.capRules.minimum_group_monthly_cap
     ),
     sinkTarget: parameters.sink_target,
+    sinkAdoptionModel: parameters.sink_adoption_model,
     cashoutMode: parameters.cashout_mode,
     cashoutMinUsd: parameters.cashout_min_usd,
     cashoutFeeBps: parameters.cashout_fee_bps,
@@ -780,6 +802,8 @@ function buildRawRows(
       lifecycleStage,
       rawIssued: (pcAlphaBase * parameters.kPc + spAlphaBase * parameters.kSp) * activityMultiplier,
       issued: 0,
+      actualSpent: 0,
+      modeledSpent: 0,
       spent: 0,
       held: 0,
       cashout: 0,
@@ -836,6 +860,41 @@ function applyGroupCaps(rows: WorkingFactRow[], capGroupMonthly: number) {
   });
 }
 
+function calculateSinkAdoptionDemand(
+  row: WorkingFactRow,
+  sinkAdoptionModel: ScenarioSinkAdoptionModel
+) {
+  if (!row.activeMember) {
+    return 0;
+  }
+
+  const adoptionRate = sinkAdoptionModel.sink_adoption_rate_pct / 100;
+  const eligibleShare = sinkAdoptionModel.eligible_member_share_pct / 100;
+  const alphaPaymentShare = sinkAdoptionModel.alpha_payment_share_pct / 100;
+
+  if (
+    adoptionRate <= 0 ||
+    eligibleShare <= 0 ||
+    alphaPaymentShare <= 0 ||
+    sinkAdoptionModel.avg_sink_ticket_usd <= 0 ||
+    sinkAdoptionModel.sink_frequency_per_month <= 0
+  ) {
+    return 0;
+  }
+
+  const monthlyGrowthFactor = Math.max(0, 1 + sinkAdoptionModel.sink_growth_rate_pct / 100);
+  const growthMultiplier = Math.pow(monthlyGrowthFactor, Math.max(row.periodIndex - 1, 0));
+
+  return (
+    sinkAdoptionModel.avg_sink_ticket_usd *
+    sinkAdoptionModel.sink_frequency_per_month *
+    adoptionRate *
+    eligibleShare *
+    alphaPaymentShare *
+    growthMultiplier
+  );
+}
+
 function finalizeFactRows(
   rows: WorkingFactRow[],
   parameters: EffectiveScenarioParameters,
@@ -868,12 +927,25 @@ function finalizeFactRows(
   );
 
   return rows.map((row) => {
-    const spendCandidate =
+    const actualSpendCandidate =
+      row.periodKey === row.sourcePeriodKey ? Math.max(row.sinkSpendUsd, 0) : 0;
+    const historicalPolicySpendCandidate =
       row.sinkSpendUsd * sinkScale * baselineModel.sinkRules.spend_release_factor;
-    const spent = Math.min(
-      row.issued * baselineModel.sinkRules.max_spend_share,
-      Math.max(spendCandidate, 0)
+    const policyModeledSpendCandidate = Math.max(
+      historicalPolicySpendCandidate - actualSpendCandidate,
+      0
     );
+    const adoptionModeledSpendCandidate = calculateSinkAdoptionDemand(
+      row,
+      parameters.sinkAdoptionModel
+    );
+    const spendCapacity = Math.max(row.issued * baselineModel.sinkRules.max_spend_share, 0);
+    const actualSpent = Math.min(spendCapacity, actualSpendCandidate);
+    const modeledSpent = Math.min(
+      Math.max(spendCapacity - actualSpent, 0),
+      policyModeledSpendCandidate + adoptionModeledSpendCandidate
+    );
+    const spent = actualSpent + modeledSpent;
     const cashoutEligible = row.cashoutUsd >= parameters.cashoutMinUsd ? row.cashoutUsd : 0;
     const cashout = Math.min(
       Math.max(row.issued - spent, 0),
@@ -881,8 +953,8 @@ function finalizeFactRows(
     );
     const held = Math.max(row.issued - spent - cashout, 0);
     // Treasury-facing pressure should stay anchored to the understanding-doc
-    // reward distributions already present in the snapshot truth. Founder-safe
-    // scenarios do not rewrite named reward families with generic multipliers.
+    // reward distributions already present in the imported snapshot data.
+    // Imported-data-only scenarios do not rewrite named reward families.
     const rewardLiability =
       Math.max(row.globalRewardUsd, 0) +
       Math.max(row.poolRewardUsd, 0);
@@ -893,6 +965,8 @@ function finalizeFactRows(
 
     return {
       ...row,
+      actualSpent,
+      modeledSpent,
       spent,
       cashout,
       held,
@@ -1062,6 +1136,69 @@ function buildFinancialPeriodLedgers(
     }));
 }
 
+function buildTokenFlowPeriodLedgers(rows: WorkingFactRow[]): TokenFlowPeriodLedger[] {
+  const periodMap = new Map<
+    string,
+    {
+      issued: number;
+      actualSpent: number;
+      modeledSpent: number;
+      spent: number;
+      cashout: number;
+      expiredBurned: number;
+      isProjected: boolean;
+    }
+  >();
+
+  for (const row of rows) {
+    const period =
+      periodMap.get(row.periodKey) ??
+      {
+        issued: 0,
+        actualSpent: 0,
+        modeledSpent: 0,
+        spent: 0,
+        cashout: 0,
+        expiredBurned: 0,
+        isProjected: false
+      };
+
+    period.issued += row.issued;
+    period.actualSpent += row.actualSpent;
+    period.modeledSpent += row.modeledSpent;
+    period.spent += row.spent;
+    period.cashout += row.cashout;
+    period.isProjected ||= row.periodKey !== row.sourcePeriodKey;
+    periodMap.set(row.periodKey, period);
+  }
+
+  let openingBalance = 0;
+
+  return [...periodMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([periodKey, period]) => {
+      const endingBalance = Math.max(
+        openingBalance + period.issued - period.spent - period.cashout - period.expiredBurned,
+        0
+      );
+      const ledger: TokenFlowPeriodLedger = {
+        periodKey,
+        openingBalance,
+        issued: period.issued,
+        actualSpent: period.actualSpent,
+        modeledSpent: period.modeledSpent,
+        spent: period.spent,
+        cashout: period.cashout,
+        expiredBurned: period.expiredBurned,
+        endingBalance,
+        isProjected: period.isProjected
+      };
+
+      openingBalance = endingBalance;
+      return ledger;
+    });
+}
+
 function buildSummaryMetrics(
   rows: WorkingFactRow[],
   baselineModel: SimulationBaselineModel,
@@ -1069,12 +1206,15 @@ function buildSummaryMetrics(
 ): SummaryMetrics {
   const summary = createDefaultSummaryMetrics();
   const issuedTotal = rows.reduce((total, row) => total + row.issued, 0);
+  const actualSpentTotal = rows.reduce((total, row) => total + row.actualSpent, 0);
+  const modeledSpentTotal = rows.reduce((total, row) => total + row.modeledSpent, 0);
   const spentTotal = rows.reduce((total, row) => total + row.spent, 0);
   const heldTotal = rows.reduce((total, row) => total + row.held, 0);
   const cashoutTotal = rows.reduce((total, row) => total + row.cashout, 0);
   const liabilityTotal = rows.reduce((total, row) => total + row.liability, 0);
   const inflowTotal = rows.reduce((total, row) => total + row.inflow, 0);
   const financialLedgers = buildFinancialPeriodLedgers(rows, poolFundingRows);
+  const tokenFlowLedgers = buildTokenFlowPeriodLedgers(rows);
   const grossCashInTotal = financialLedgers.reduce((total, ledger) => total + ledger.grossCashIn, 0);
   const retainedRevenueTotal = financialLedgers.reduce(
     (total, ledger) => total + ledger.retainedRevenue,
@@ -1130,9 +1270,18 @@ function buildSummaryMetrics(
         );
 
   summary.alpha_issued_total = roundMetric(issuedTotal);
+  summary.alpha_actual_spent_total = roundMetric(actualSpentTotal);
+  summary.alpha_modeled_spent_total = roundMetric(modeledSpentTotal);
   summary.alpha_spent_total = roundMetric(spentTotal);
   summary.alpha_held_total = roundMetric(heldTotal);
   summary.alpha_cashout_equivalent_total = roundMetric(cashoutTotal);
+  summary.alpha_opening_balance_total = roundMetric(tokenFlowLedgers[0]?.openingBalance ?? 0);
+  summary.alpha_ending_balance_total = roundMetric(
+    tokenFlowLedgers[tokenFlowLedgers.length - 1]?.endingBalance ?? heldTotal
+  );
+  summary.alpha_expired_burned_total = roundMetric(
+    tokenFlowLedgers.reduce((total, ledger) => total + ledger.expiredBurned, 0)
+  );
   summary.company_gross_cash_in_total = roundMetric(grossCashInTotal);
   summary.company_retained_revenue_total = roundMetric(retainedRevenueTotal);
   summary.company_partner_payout_out_total = roundMetric(partnerPayoutOutTotal);
@@ -1141,10 +1290,14 @@ function buildSummaryMetrics(
   summary.company_actual_payout_out_total = roundMetric(actualPayoutOutTotal);
   summary.company_product_fulfillment_out_total = roundMetric(productFulfillmentOutTotal);
   summary.company_net_treasury_delta_total = roundMetric(netTreasuryDeltaTotal);
+  summary.actual_sink_utilization_rate = roundMetric(safeDivide(actualSpentTotal, issuedTotal) * 100);
+  summary.modeled_sink_utilization_rate = roundMetric(safeDivide(modeledSpentTotal, issuedTotal) * 100);
   summary.sink_utilization_rate = roundMetric(safeDivide(spentTotal, issuedTotal) * 100);
   summary.payout_inflow_ratio = roundMetric(payoutInflowRatio);
   summary.reserve_runway_months = roundMetric(clamp(reserveRunwayMonths, 0, 24));
   summary.reward_concentration_top10_pct = roundMetric(safeDivide(topIssued, issuedTotal) * 100);
+  summary.forecast_actual_period_count = tokenFlowLedgers.filter((ledger) => !ledger.isProjected).length;
+  summary.forecast_projected_period_count = tokenFlowLedgers.filter((ledger) => ledger.isProjected).length;
 
   return summary;
 }
@@ -1157,6 +1310,8 @@ function buildTimeSeriesMetrics(
     string,
     {
       issued: number;
+      actualSpent: number;
+      modeledSpent: number;
       spent: number;
       held: number;
       cashout: number;
@@ -1168,10 +1323,15 @@ function buildTimeSeriesMetrics(
   const financialByPeriod = new Map(
     financialLedgers.map((ledger) => [ledger.periodKey, ledger] as const)
   );
+  const tokenFlowByPeriod = new Map(
+    buildTokenFlowPeriodLedgers(rows).map((ledger) => [ledger.periodKey, ledger] as const)
+  );
 
   for (const row of rows) {
     const period = periodMap.get(row.periodKey) ?? {
       issued: 0,
+      actualSpent: 0,
+      modeledSpent: 0,
       spent: 0,
       held: 0,
       cashout: 0,
@@ -1180,6 +1340,8 @@ function buildTimeSeriesMetrics(
     };
 
     period.issued += row.issued;
+    period.actualSpent += row.actualSpent;
+    period.modeledSpent += row.modeledSpent;
     period.spent += row.spent;
     period.held += row.held;
     period.cashout += row.cashout;
@@ -1192,8 +1354,14 @@ function buildTimeSeriesMetrics(
     .sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([periodKey, period]) => {
       const financialLedger = financialByPeriod.get(periodKey);
+      const tokenFlowLedger = tokenFlowByPeriod.get(periodKey);
 
       return [
+        {
+          period_key: periodKey,
+          metric_key: "alpha_opening_balance_total",
+          metric_value: roundMetric(tokenFlowLedger?.openingBalance ?? 0)
+        },
         {
           period_key: periodKey,
           metric_key: "alpha_issued_total",
@@ -1206,6 +1374,16 @@ function buildTimeSeriesMetrics(
         },
         {
           period_key: periodKey,
+          metric_key: "alpha_actual_spent_total",
+          metric_value: roundMetric(period.actualSpent)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_modeled_spent_total",
+          metric_value: roundMetric(period.modeledSpent)
+        },
+        {
+          period_key: periodKey,
           metric_key: "alpha_held_total",
           metric_value: roundMetric(period.held)
         },
@@ -1213,6 +1391,21 @@ function buildTimeSeriesMetrics(
           period_key: periodKey,
           metric_key: "alpha_cashout_equivalent_total",
           metric_value: roundMetric(period.cashout)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_expired_burned_total",
+          metric_value: roundMetric(tokenFlowLedger?.expiredBurned ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "alpha_ending_balance_total",
+          metric_value: roundMetric(tokenFlowLedger?.endingBalance ?? 0)
+        },
+        {
+          period_key: periodKey,
+          metric_key: "forecast_period_is_projected",
+          metric_value: tokenFlowLedger?.isProjected ? 1 : 0
         },
         {
           period_key: periodKey,
@@ -1291,6 +1484,8 @@ function buildSegmentMetrics(
       periodStart: string;
       periodEnd: string;
       issued: number;
+      actualSpent: number;
+      modeledSpent: number;
       spent: number;
       cashout: number;
       liability: number;
@@ -1329,6 +1524,8 @@ function buildSegmentMetrics(
       periodStart: row.periodKey,
       periodEnd: row.periodKey,
       issued: 0,
+      actualSpent: 0,
+      modeledSpent: 0,
       spent: 0,
       cashout: 0,
       liability: 0,
@@ -1337,6 +1534,8 @@ function buildSegmentMetrics(
     milestone.periodStart = row.periodKey < milestone.periodStart ? row.periodKey : milestone.periodStart;
     milestone.periodEnd = row.periodKey > milestone.periodEnd ? row.periodKey : milestone.periodEnd;
     milestone.issued += row.issued;
+    milestone.actualSpent += row.actualSpent;
+    milestone.modeledSpent += row.modeledSpent;
     milestone.spent += row.spent;
     milestone.cashout += row.cashout;
     milestone.liability += row.liability;
@@ -1459,6 +1658,18 @@ function buildSegmentMetrics(
       {
         segment_type: "milestone",
         segment_key: segmentKey,
+        metric_key: "alpha_actual_spent_total",
+        metric_value: roundMetric(totals.actualSpent)
+      },
+      {
+        segment_type: "milestone",
+        segment_key: segmentKey,
+        metric_key: "alpha_modeled_spent_total",
+        metric_value: roundMetric(totals.modeledSpent)
+      },
+      {
+        segment_type: "milestone",
+        segment_key: segmentKey,
         metric_key: "alpha_cashout_equivalent_total",
         metric_value: roundMetric(totals.cashout)
       },
@@ -1486,9 +1697,33 @@ function buildSegmentMetrics(
     },
     {
       segment_type: "alpha_behavior",
+      segment_key: "actual_spend",
+      metric_key: "alpha_actual_spent_total",
+      metric_value: roundMetric(summary.alpha_actual_spent_total)
+    },
+    {
+      segment_type: "alpha_behavior",
+      segment_key: "modeled_spend",
+      metric_key: "alpha_modeled_spent_total",
+      metric_value: roundMetric(summary.alpha_modeled_spent_total)
+    },
+    {
+      segment_type: "alpha_behavior",
       segment_key: "cashout",
       metric_key: "alpha_cashout_equivalent_total",
       metric_value: roundMetric(summary.alpha_cashout_equivalent_total)
+    },
+    {
+      segment_type: "alpha_behavior",
+      segment_key: "burn_expire",
+      metric_key: "alpha_expired_burned_total",
+      metric_value: roundMetric(summary.alpha_expired_burned_total)
+    },
+    {
+      segment_type: "alpha_behavior",
+      segment_key: "ending_balance",
+      metric_key: "alpha_ending_balance_total",
+      metric_value: roundMetric(summary.alpha_ending_balance_total)
     }
   );
 

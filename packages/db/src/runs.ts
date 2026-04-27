@@ -38,6 +38,7 @@ type PersistCompletedRunInput = {
   }>;
   recommendationSignals: Prisma.InputJsonValue;
   runNotes?: string | null;
+  completedAt?: Date | null;
 };
 
 const runInclude = {
@@ -342,7 +343,7 @@ export async function persistCompletedRun(runId: string, input: PersistCompleted
       },
       data: {
         status: RunStatus.COMPLETED,
-        completedAt: new Date(),
+        completedAt: input.completedAt ?? new Date(),
         runNotes: input.runNotes ?? null
       },
       include: runInclude

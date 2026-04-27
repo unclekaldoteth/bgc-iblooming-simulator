@@ -6,6 +6,7 @@ import {
   formatCommonMetricValue,
   formatMonthCountLabel,
   getCommonMetricLabel,
+  getHistoricalTruthCoverageLabel,
   getDecisionGovernanceStatusLabel,
   getEvidenceLevelLabel,
   getCanonicalGapStatusLabel,
@@ -52,6 +53,8 @@ type RunExtra = {
   runId: string;
   verdict: string;
   parameters: {
+    scenario_mode_label: string;
+    forecast_mode_caveat: string | null;
     k_pc: number;
     k_sp: number;
     reward_global_factor: number;
@@ -383,6 +386,8 @@ export function CompareConsole({
           ),
           parameters:
             extra?.parameters ?? {
+              scenario_mode_label: "Imported Data Only",
+              forecast_mode_caveat: null,
               k_pc: 1,
               k_sp: 1,
               reward_global_factor: 1,
@@ -397,7 +402,7 @@ export function CompareConsole({
               cashout_window_days: 0,
               projection_horizon_months: null,
               milestone_count: 0,
-              cohort_projection_label: "disabled in founder-safe mode"
+              cohort_projection_label: "off in Imported Data Only"
             },
           historicalTruthCoverage: extra?.historicalTruthCoverage ?? null,
           strategicObjectives: extra?.strategicObjectives ?? [],
@@ -437,9 +442,9 @@ export function CompareConsole({
   }
 
   function getDecisionLogStatusLabel(status: string) {
-    if (status === "fixed_truth") return "Fixed Truth";
+    if (status === "fixed_truth") return "Imported Data";
     if (status === "recommended") return "Recommended";
-    if (status === "pending_founder") return "Founder Decision";
+    if (status === "pending_founder") return "Decision Needed";
     if (status === "blocked") return "Blocked";
     return status;
   }
@@ -447,15 +452,15 @@ export function CompareConsole({
   function getTruthClassificationLabel(classification: string) {
     switch (classification) {
       case "historical_truth":
-        return "Historical Truth";
+        return "Imported Data";
       case "scenario_lever":
-        return "Scenario Lever";
+        return "Editable";
       case "scenario_assumption":
-        return "Scenario Assumption";
+        return "Assumption";
       case "locked_boundary":
-        return "Locked Boundary";
+        return "Locked";
       case "derived_assessment":
-        return "Derived Assessment";
+        return "Calculated";
       default:
         return classification;
     }
@@ -483,14 +488,14 @@ export function CompareConsole({
 
   function getFounderQuestionStatusLabel(status: string) {
     if (status === "recommended") return "Recommended";
-    if (status === "pending_founder") return "Founder Decision";
+    if (status === "pending_founder") return "Decision Needed";
     return "Blocked";
   }
 
   function getParameterClassificationLabel(classification: string) {
-    if (classification === "scenario_lever") return "Scenario Lever";
-    if (classification === "scenario_assumption") return "Scenario Assumption";
-    return "Locked Boundary";
+    if (classification === "scenario_lever") return "Editable";
+    if (classification === "scenario_assumption") return "Assumption";
+    return "Locked";
   }
 
   function getParameterClassificationBadge(classification: string) {
@@ -526,7 +531,7 @@ export function CompareConsole({
 
       if (next.has(id)) {
         if (next.size <= 1) {
-          setSelectorNotice("Keep at least one run selected.");
+          setSelectorNotice("Keep at least one result selected.");
           return prev;
         }
         next.delete(id);
@@ -535,7 +540,7 @@ export function CompareConsole({
       }
 
       if (next.size >= maxComparedRuns) {
-        setSelectorNotice(`Compare is limited to ${maxComparedRuns} runs so charts and tables stay readable.`);
+        setSelectorNotice(`You can compare up to ${maxComparedRuns} results so charts and tables stay readable.`);
         return prev;
       }
 
@@ -624,35 +629,35 @@ export function CompareConsole({
         <div className="compare-selected-bar">
           <div>
             <span className="scenario-selector-label">
-              Select scenarios to compare
+              Choose results to compare
               <span className="scenario-selector-count">{selectedIds.size}/{runs.length}</span>
             </span>
             <p className="compare-selector-subcopy">
-              Recommended: 2-5 completed runs. Selection is reflected in the page URL.
+              Pick 2-5 completed results. The page link updates so you can reopen the same comparison.
             </p>
           </div>
           <div className="scenario-selector-actions">
             {compareExportBaseHref ? (
               <>
                 <a className="selector-action-btn" href={`${compareExportBaseHref}&format=pdf`}>
-                  Download PDF
+                  Download Report PDF
                 </a>
                 <a className="selector-action-btn" href={`${compareExportBaseHref}&format=md`}>
-                  Download MD
+                  Download Notes
                 </a>
                 <a className="selector-action-btn" href={`${compareExportBaseHref}&format=json`}>
-                  Download JSON
+                  Download Data
                 </a>
               </>
             ) : (
               <>
-                <span className="selector-action-btn selector-action-btn--disabled">Download PDF</span>
-                <span className="selector-action-btn selector-action-btn--disabled">Download MD</span>
-                <span className="selector-action-btn selector-action-btn--disabled">Download JSON</span>
+                <span className="selector-action-btn selector-action-btn--disabled">Download Report PDF</span>
+                <span className="selector-action-btn selector-action-btn--disabled">Download Notes</span>
+                <span className="selector-action-btn selector-action-btn--disabled">Download Data</span>
               </>
             )}
             <button className="selector-action-btn" onClick={() => setSelectorOpen((value) => !value)} type="button">
-              {selectorOpen ? "Close Selector" : "Manage Scenarios"}
+              {selectorOpen ? "Close List" : "Change Results"}
             </button>
             <button className="selector-action-btn" onClick={resetSelection} type="button">Reset</button>
           </div>
@@ -683,22 +688,22 @@ export function CompareConsole({
 
         {selectorNotice ? <p className="scenario-selector-hint">{selectorNotice}</p> : null}
         {selectedIds.size < 2 ? (
-          <p className="scenario-selector-hint">Select at least 2 scenarios for meaningful comparison.</p>
+          <p className="scenario-selector-hint">Choose at least 2 results to compare side by side.</p>
         ) : null}
 
         {selectorOpen ? (
           <div className="compare-manage-panel">
             <div className="compare-search-row">
-              <label htmlFor="compare-run-search">Find run</label>
+              <label htmlFor="compare-run-search">Find result</label>
               <input
                 id="compare-run-search"
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search scenario, ref, or snapshot"
+                placeholder="Search name, ref, or data snapshot"
                 type="search"
                 value={searchQuery}
               />
               <button className="selector-action-btn" onClick={selectVisible} type="button">
-                Select Visible
+                Select Shown
               </button>
             </div>
 
@@ -733,7 +738,7 @@ export function CompareConsole({
                 );
               })}
               {matchingRuns.length === 0 ? (
-                <p className="muted">No completed runs match that search.</p>
+                <p className="muted">No completed results match that search.</p>
               ) : null}
             </div>
           </div>
@@ -743,9 +748,9 @@ export function CompareConsole({
       <section className="page-grid">
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Scenario Profile Radar</h3>
+            <h3>Quick Score Chart</h3>
             <p className="muted compare-section-note">
-              Visual overlay for quick scanning only. Use the cashflow and treasury tables as the decision source of truth.
+              Use this chart for a quick visual only. Use the money and treasury tables for decisions.
             </p>
             <CompareRadarChart dimensions={radarData.dimensions} series={radarData.series} />
           </div>
@@ -753,9 +758,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Simulation Summary</h3>
+            <h3>Summary</h3>
             <p className="muted compare-section-note">
-              Compare-level readout designed for founder review. This keeps the selected scenarios, strongest current envelope, treasury posture, and truth posture in one place before diving into detailed tables.
+              Plain summary of the selected results, strongest choice, treasury safety, and data quality.
             </p>
             <div className="decision-summary">
               <div className="decision-summary__verdict">
@@ -779,10 +784,10 @@ export function CompareConsole({
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Summary Item</th>
+                    <th>Topic</th>
                     <th>Status</th>
-                    <th>Current Readout</th>
-                    <th>Implication</th>
+                    <th>What It Shows</th>
+                    <th>Why It Matters</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -806,9 +811,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Executive Status Memo</h3>
+            <h3>Status Memo</h3>
             <p className="muted compare-section-note">
-              Founder-facing status memo generated from the current compare set. This summarizes readiness, blockers, and what still needs an explicit decision before the package is closed.
+              Short memo for review. Shows whether this comparison is ready, blocked, or still needs a decision.
             </p>
             <div className="decision-summary">
               <div className="decision-summary__verdict">
@@ -820,7 +825,7 @@ export function CompareConsole({
                       : "badge--rejected"
                 }`}>
                   {decisionSupport.executiveStatusMemo.status === "recommended"
-                    ? "Working Ready"
+                    ? "Ready to Use"
                     : decisionSupport.executiveStatusMemo.status === "review"
                       ? "Decision Required"
                       : "Blocked"}
@@ -834,8 +839,8 @@ export function CompareConsole({
                   <tr>
                     <th>Memo Item</th>
                     <th>Status</th>
-                    <th>Current Readout</th>
-                    <th>Implication</th>
+                    <th>What It Shows</th>
+                    <th>Why It Matters</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -859,9 +864,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Compare Decision Snapshot</h3>
+            <h3>Result Cards</h3>
             <p className="muted compare-section-note">
-              One-card readout per selected run. Cashflow and treasury signals are shown before ALPHA policy details.
+              Each card shows money impact and treasury pressure before ALPHA policy details.
             </p>
             <div className="compare-decision-grid">
               {filteredRuns.map((run) => {
@@ -880,21 +885,26 @@ export function CompareConsole({
                       <span className={`badge ${getVerdictBadge(extra?.verdict ?? "pending")}`}>
                         {getPolicyStatusLabel(extra?.verdict ?? "pending")}
                       </span>
+                      {extra ? (
+                        <span className={`badge ${extra.parameters.forecast_mode_caveat ? "badge--risky" : "badge--info"}`}>
+                          {extra.parameters.scenario_mode_label}
+                        </span>
+                      ) : null}
                       {extra?.adoptedBaselineRunId === run.id ? (
                         <span className="badge badge--info">Current Baseline</span>
                       ) : null}
                     </div>
                     <div className="compare-mini-grid">
                       <span>
-                        <small>Net Delta</small>
+                        <small>Net Cash Change</small>
                         <strong>{formatCommonMetricValue("company_net_treasury_delta_total", netDelta)}</strong>
                       </span>
                       <span>
-                        <small>Payout Out</small>
+                        <small>Paid Out</small>
                         <strong>{formatCommonMetricValue("company_actual_payout_out_total", payoutOut)}</strong>
                       </span>
                       <span>
-                        <small>Pressure</small>
+                        <small>Payout Pressure</small>
                         <strong>{formatCommonMetricValue("payout_inflow_ratio", pressure)}</strong>
                       </span>
                       <span>
@@ -902,6 +912,11 @@ export function CompareConsole({
                         <strong>{formatMonthCountLabel(runway)}</strong>
                       </span>
                     </div>
+                    {extra?.parameters.forecast_mode_caveat ? (
+                      <p className="muted" style={{ marginTop: "0.75rem" }}>
+                        {extra.parameters.forecast_mode_caveat}
+                      </p>
+                    ) : null}
                     {extra?.adoptedBaselineRunId === run.id && extra.adoptedBaselineAt ? (
                       <p className="muted" style={{ marginTop: "0.75rem" }}>
                         Adopted {new Date(extra.adoptedBaselineAt).toLocaleString("en-US")}
@@ -917,9 +932,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Financial View by Scenario</h3>
+            <h3>Money View by Result</h3>
             <p className="muted compare-section-note">
-              Founder-facing cashflow readout per scenario. This compresses each option into money in, liability load, payout leakage, treasury posture, and the business tradeoff it represents.
+              Money view for each result: cash in, revenue kept, payouts, treasury pressure, and business tradeoff.
             </p>
             <div className="compare-financial-grid">
               {decisionSupport.financialScenarioView.rows.map((row) => {
@@ -935,35 +950,35 @@ export function CompareConsole({
                     <p className="compare-financial-summary">{row.summary}</p>
                     <div className="compare-financial-metrics">
                       <span>
-                        <small>Gross In</small>
+                        <small>Cash In</small>
                         <strong>{formatCommonMetricValue("company_gross_cash_in_total", row.grossCashIn)}</strong>
                       </span>
                       <span>
-                        <small>Revenue</small>
+                        <small>Revenue Kept</small>
                         <strong>{formatCommonMetricValue("company_retained_revenue_total", row.retainedRevenue)}</strong>
                       </span>
                       <span>
-                        <small>Partner Out</small>
+                        <small>Partner Payout</small>
                         <strong>{formatCommonMetricValue("company_partner_payout_out_total", row.partnerPayoutOut)}</strong>
                       </span>
                       <span>
-                        <small>Direct Obl.</small>
+                        <small>Direct Rewards Owed</small>
                         <strong>{formatCommonMetricValue("company_direct_reward_obligation_total", row.directObligations)}</strong>
                       </span>
                       <span>
-                        <small>Payout Out</small>
+                        <small>Paid Out</small>
                         <strong>{formatCommonMetricValue("company_actual_payout_out_total", row.actualPayoutOut)}</strong>
                       </span>
                       <span>
-                        <small>Fulfillment</small>
+                        <small>Fulfillment Cost</small>
                         <strong>{formatCommonMetricValue("company_product_fulfillment_out_total", row.fulfillmentOut)}</strong>
                       </span>
                       <span>
-                        <small>Net Delta</small>
+                        <small>Net Cash Change</small>
                         <strong>{formatCommonMetricValue("company_net_treasury_delta_total", row.netTreasuryDelta)}</strong>
                       </span>
                       <span>
-                        <small>Pressure / Runway</small>
+                        <small>Pressure + Runway</small>
                         <strong>{formatCommonMetricValue("payout_inflow_ratio", row.treasuryPressure)} · {formatMonthCountLabel(row.reserveRunwayMonths)}</strong>
                       </span>
                     </div>
@@ -979,23 +994,23 @@ export function CompareConsole({
 
         {filteredRuns.length > 0
           ? renderMetricTable(
-              "Business Cashflow Comparison",
-              "Company cashflow truth. Fiat/cashflow values are shown in $ and kept separate from ALPHA policy movement.",
+              "Money Comparison",
+              "Cash in and cash out are shown in dollars. ALPHA movement is kept separate in the ALPHA table.",
               compareCashflowMetricKeys
             )
           : null}
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Historical Truth Coverage</h3>
+            <h3>Data Completeness</h3>
             <p className="muted compare-section-note">
-              Canonical and derived truth coverage behind each selected run. This closes the gap between scenario discussion and the actual stored business evidence.
+              Shows how complete the uploaded data is behind each result.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Coverage Layer</th>
+                    <th>Data Area</th>
                     {filteredRuns.map((run) => (
                       <th key={`${run.id}-truth-coverage`}>{runDisplayLabels.get(run.id) ?? run.scenario.name}</th>
                     ))}
@@ -1003,16 +1018,16 @@ export function CompareConsole({
                 </thead>
                 <tbody>
                   <tr>
-                    <td><strong>Overall Coverage</strong></td>
+                    <td><strong>Overall Data Quality</strong></td>
                     {filteredRuns.map((run) => {
                       const coverage = extrasByRunId.get(run.id)?.historicalTruthCoverage;
                       return (
                         <td key={`${run.id}-truth-overall`}>
                           <div className="compare-rich-cell">
                             <span className={`badge ${getVerdictBadge(coverage?.status === "strong" ? "candidate" : coverage?.status === "partial" ? "risky" : "rejected")}`}>
-                              {coverage?.status ?? "weak"}
+                              {getHistoricalTruthCoverageLabel(coverage?.status ?? "weak")}
                             </span>
-                            {coverage?.summary ? <p>{coverage.summary}</p> : <p>No truth coverage summary recorded.</p>}
+                            {coverage?.summary ? <p>{coverage.summary}</p> : <p>No imported data coverage summary yet.</p>}
                           </div>
                         </td>
                       );
@@ -1029,14 +1044,14 @@ export function CompareConsole({
                             ?.historicalTruthCoverage?.rows.find((row) => row.key === coverageKey);
 
                           if (!coverage) {
-                            return <td key={`${run.id}-${coverageKey}`} className="muted">N/A</td>;
+                            return <td key={`${run.id}-${coverageKey}`} className="muted">Not available</td>;
                           }
 
                           return (
                             <td key={`${run.id}-${coverageKey}`}>
                               <div className="compare-rich-cell">
                                 <span className={`badge ${getVerdictBadge(coverage.status === "available" ? "candidate" : coverage.status === "partial" ? "risky" : "rejected")}`}>
-                                  {coverage.status}
+                                  {getHistoricalTruthCoverageLabel(coverage.status)}
                                 </span>
                                 <p>{coverage.detail}</p>
                               </div>
@@ -1054,15 +1069,15 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Canonical Fidelity Audit</h3>
+            <h3>Source Detail Check</h3>
             <p className="muted compare-section-note">
-              Rule-family audit for where canonical/event-native closure is already covered and where stronger fidelity work is still needed.
+              Shows which source details are already available and which details are still missing.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Rule Family</th>
+                    <th>Source Area</th>
                     {filteredRuns.map((run) => (
                       <th key={`${run.id}-canonical-gap`}>{runDisplayLabels.get(run.id) ?? run.scenario.name}</th>
                     ))}
@@ -1070,7 +1085,7 @@ export function CompareConsole({
                 </thead>
                 <tbody>
                   <tr>
-                    <td><strong>Overall Fidelity Readiness</strong></td>
+                    <td><strong>Overall Source Detail</strong></td>
                     {filteredRuns.map((run) => {
                       const audit = extrasByRunId.get(run.id)?.canonicalGapAudit;
                       return (
@@ -1079,7 +1094,7 @@ export function CompareConsole({
                             <span className={`badge ${getVerdictBadge(audit?.readiness === "strong" ? "candidate" : audit?.readiness === "partial" ? "risky" : "rejected")}`}>
                               {audit?.readiness ?? "weak"}
                             </span>
-                            {audit?.summary ? <p>{audit.summary}</p> : <p>No canonical fidelity audit recorded.</p>}
+                            {audit?.summary ? <p>{audit.summary}</p> : <p>No source detail check recorded yet.</p>}
                           </div>
                         </td>
                       );
@@ -1096,7 +1111,7 @@ export function CompareConsole({
                             ?.canonicalGapAudit?.rows.find((row) => row.key === gapKey);
 
                           if (!auditRow) {
-                            return <td key={`${run.id}-${gapKey}`} className="muted">N/A</td>;
+                            return <td key={`${run.id}-${gapKey}`} className="muted">Not available</td>;
                           }
 
                           return (
@@ -1121,9 +1136,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Recommended Pilot Envelope</h3>
+            <h3>Recommended Setup</h3>
             <p className="muted compare-section-note">
-              Compare-level recommendation. This is the strongest current pilot envelope across the selected runs, not a claim that historical truth itself changed.
+              Best current setup from the selected results. This changes policy settings only, not uploaded data.
             </p>
             <div className="decision-summary">
               <div className="decision-summary__verdict">
@@ -1143,7 +1158,7 @@ export function CompareConsole({
                 <p style={{ marginTop: "0.75rem" }}>{decisionSupport.recommendedEnvelope.summary}</p>
                 {decisionSupport.recommendedEnvelope.recommendedRunLabel ? (
                   <p className="muted" style={{ marginTop: "0.5rem" }}>
-                    Current strongest run: <strong>{decisionSupport.recommendedEnvelope.recommendedRunLabel}</strong>
+                    Current strongest result: <strong>{decisionSupport.recommendedEnvelope.recommendedRunLabel}</strong>
                   </p>
                 ) : null}
               </div>
@@ -1163,7 +1178,7 @@ export function CompareConsole({
                     <th>Setup Item</th>
                     <th>Value</th>
                     <th>Status</th>
-                    <th>Rationale</th>
+                    <th>Why</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1187,21 +1202,21 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Parameter Registry</h3>
+            <h3>Parameter Guide</h3>
             <p className="muted compare-section-note">
-              Compare-level parameter registry aligned to the Simulation Docs. Each item shows the tested range, the current working default used as the baseline reference, the strongest current recommendation, and the decision owner.
+              Guide for each setting: what it means, what values were tested, the current default, and who should decide.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Parameter</th>
-                    <th>Description</th>
-                    <th>Tested Range</th>
-                    <th>Working Default</th>
-                    <th>Current Recommendation</th>
+                    <th>Setting</th>
+                    <th>Meaning</th>
+                    <th>Tested Values</th>
+                    <th>Current Default</th>
+                    <th>Suggested Choice</th>
                     <th>Decision Owner</th>
-                    <th>Classification</th>
+                    <th>Type</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1224,9 +1239,9 @@ export function CompareConsole({
                             {getParameterClassificationLabel(row.classification)}
                           </span>
                           <small>
-                            Guardrail: {
+                            Rule: {
                               row.guardrailStatus === "allowed"
-                                ? "Allowed"
+                                ? "Editable"
                                 : row.guardrailStatus === "conditional"
                                   ? "Assumption"
                                   : "Locked"
@@ -1244,21 +1259,21 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Parameter Range Synthesis</h3>
+            <h3>Parameter Ranges</h3>
             <p className="muted compare-section-note">
-              Tested values across the selected runs, normalized into ready, caution, and rejected ranges so founder discussion can stay in envelope language instead of single numbers only.
+              Values tested across the selected results, grouped into recommended, use-with-care, and do-not-use ranges.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Parameter</th>
-                    <th>Guardrail</th>
-                    <th>Recommended Range</th>
-                    <th>Caution Range</th>
-                    <th>Rejected Range</th>
+                    <th>Setting</th>
+                    <th>Status</th>
+                    <th>Recommended Values</th>
+                    <th>Use With Care</th>
+                    <th>Do Not Use</th>
                     <th>Tested Values</th>
-                    <th>Evidence</th>
+                    <th>Why</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1270,12 +1285,12 @@ export function CompareConsole({
                       </td>
                       <td>
                         <span className={`badge ${row.guardrailStatus === "allowed" ? "badge--candidate" : row.guardrailStatus === "conditional" ? "badge--risky" : "badge--neutral"}`}>
-                          {row.guardrailStatus === "allowed" ? "Allowed" : row.guardrailStatus === "conditional" ? "Assumption" : "Locked"}
+                          {row.guardrailStatus === "allowed" ? "Editable" : row.guardrailStatus === "conditional" ? "Assumption" : "Locked"}
                         </span>
                       </td>
                       <td>{row.recommendedValues}</td>
-                      <td>{row.cautionValues ?? "n/a"}</td>
-                      <td>{row.rejectedValues ?? "n/a"}</td>
+                      <td>{row.cautionValues ?? "Not set"}</td>
+                      <td>{row.rejectedValues ?? "Not set"}</td>
                       <td>{row.testedValues}</td>
                       <td>{row.evidence}</td>
                     </tr>
@@ -1288,20 +1303,20 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Founder Question Queue</h3>
+            <h3>Open Decisions</h3>
             <p className="muted compare-section-note">
-              Decision queue for founder review. These are the policy and document-closure questions that still need an explicit call before Whitepaper v1 and Tokenflow v1 can be treated as closed.
+              Decisions that still need a clear answer before the Whitepaper and Token Flow can be treated as final.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Founder Question</th>
+                    <th>Question</th>
                     <th>Status</th>
-                    <th>Why Now</th>
-                    <th>Recommended Direction</th>
+                    <th>Why It Matters</th>
+                    <th>Suggested Answer</th>
                     <th>Decision Owner</th>
-                    <th>Decision Options</th>
+                    <th>Options</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1327,9 +1342,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Technical Implementation Plan</h3>
+            <h3>Next Build Steps</h3>
             <p className="muted compare-section-note">
-              Minimal implementation plan for closing the brief package. Artifact and handoff work stays first; heavyweight engine work should only happen if it becomes a real blocker.
+              Practical build steps needed to close the brief package without adding unnecessary engine work.
             </p>
             <div className="decision-summary">
               <div className="decision-summary__verdict">
@@ -1340,7 +1355,7 @@ export function CompareConsole({
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Workstream</th>
+                    <th>Work Area</th>
                     <th>Owner</th>
                     <th>Status</th>
                     <th>Next Action</th>
@@ -1369,9 +1384,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Decision Governance Snapshot</h3>
+            <h3>Decision Notes</h3>
             <p className="muted compare-section-note">
-              Generated decision items plus the current governance state saved against each run.
+              Saved notes for each decision: current status, owner, and latest reason or resolution.
             </p>
             <div className="table-wrap">
               <table className="table">
@@ -1395,7 +1410,7 @@ export function CompareConsole({
                             ?.decisionLog.find((item) => item.key === decisionKey);
 
                           if (!entry) {
-                            return <td key={`${run.id}-${decisionKey}`} className="muted">N/A</td>;
+                            return <td key={`${run.id}-${decisionKey}`} className="muted">Not available</td>;
                           }
 
                           return (
@@ -1405,7 +1420,7 @@ export function CompareConsole({
                                   {getDecisionLogStatusLabel(entry.status)}
                                 </span>
                                 <small>
-                                  Governance: {getDecisionGovernanceStatusLabel(entry.governance_status ?? "draft")} · {entry.governance_owner}
+                                  Review status: {getDecisionGovernanceStatusLabel(entry.governance_status ?? "draft")} · {entry.governance_owner}
                                 </small>
                                 {entry.resolution_note ? <p>{entry.resolution_note}</p> : <p>{entry.rationale}</p>}
                               </div>
@@ -1423,16 +1438,16 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Truth vs Assumption Matrix</h3>
+            <h3>Data vs Assumptions</h3>
             <p className="muted compare-section-note">
-              This matrix keeps historical truth, scenario levers, conditional assumptions, locked boundaries, and derived assessments visibly separate.
+              Shows which values come from uploaded data, which are editable, and which are assumptions or calculated outputs.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Item</th>
-                    <th>Classification</th>
+                    <th>Status</th>
                     <th>Value</th>
                     <th>Note</th>
                   </tr>
@@ -1466,25 +1481,25 @@ export function CompareConsole({
 
         {filteredRuns.length > 0
           ? renderMetricTable(
-              "ALPHA Policy Comparison",
-              "Policy-token layer only: issued, used, held, and ALPHA routed into the cash-out path.",
+              "ALPHA Flow Comparison",
+              "Shows ALPHA issued, used, held, and sent to the cash-out path.",
               compareAlphaMetricKeys
             )
           : null}
 
         {filteredRuns.length > 0
           ? renderMetricTable(
-              "Treasury Risk Comparison",
-              "Health signals used to judge treasury pressure, runway, internal use, and concentration risk.",
+              "Treasury Safety Comparison",
+              "Health signals for payout pressure, reserve runway, internal use, and reward concentration.",
               compareTreasuryMetricKeys
             )
           : null}
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Distribution Comparison</h3>
+            <h3>Distribution View</h3>
             <p className="muted compare-section-note">
-              Concentration and source split from the Distribution view. This helps show where ALPHA and source-level cashflow accumulate.
+              Shows which member group or source receives the largest share of ALPHA and cash impact.
             </p>
             <div className="table-wrap">
               <table className="table">
@@ -1498,31 +1513,31 @@ export function CompareConsole({
                 </thead>
                 <tbody>
                   <tr>
-                    <td><strong>Largest Member Tier</strong></td>
+                    <td><strong>Largest Member Group</strong></td>
                     {filteredRuns.map((run) => {
                       const largestTier = findLargestSegment(run, "member_tier", "reward_share_pct");
                       return (
                         <td key={`${run.id}-largest-tier`}>
-                          {largestTier ? `${largestTier.label} · ${formatCommonMetricValue("reward_share_pct", largestTier.value)}` : "N/A"}
+                          {largestTier ? `${largestTier.label} · ${formatCommonMetricValue("reward_share_pct", largestTier.value)}` : "Not available"}
                         </td>
                       );
                     })}
                   </tr>
                   <tr>
-                    <td><strong>Largest Source by ALPHA</strong></td>
+                    <td><strong>Largest ALPHA Source</strong></td>
                     {filteredRuns.map((run) => {
                       const largestSource = findLargestSegment(run, "source_system", "alpha_issued_total");
                       const totalIssued = getMetricValue(run, "alpha_issued_total");
                       const share = largestSource && totalIssued > 0 ? (largestSource.value / totalIssued) * 100 : 0;
                       return (
                         <td key={`${run.id}-largest-source`}>
-                          {largestSource ? `${largestSource.label} · ${formatCommonMetricValue("reward_share_pct", share)}` : "N/A"}
+                          {largestSource ? `${largestSource.label} · ${formatCommonMetricValue("reward_share_pct", share)}` : "Not available"}
                         </td>
                       );
                     })}
                   </tr>
                   <tr>
-                    <td><strong>BGC Net Treasury Delta</strong></td>
+                    <td><strong>BGC Net Cash Change</strong></td>
                     {filteredRuns.map((run) => (
                       <td key={`${run.id}-bgc-net`}>
                         {formatCommonMetricValue("company_net_treasury_delta_total", findSegmentValue(run, "source_system", "bgc", "company_net_treasury_delta_total"))}
@@ -1530,7 +1545,7 @@ export function CompareConsole({
                     ))}
                   </tr>
                   <tr>
-                    <td><strong>iBLOOMING Net Treasury Delta</strong></td>
+                    <td><strong>iBLOOMING Net Cash Change</strong></td>
                     {filteredRuns.map((run) => (
                       <td key={`${run.id}-ib-net`}>
                         {formatCommonMetricValue("company_net_treasury_delta_total", findSegmentValue(run, "source_system", "iblooming", "company_net_treasury_delta_total"))}
@@ -1545,9 +1560,9 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Strategic Goals Comparison</h3>
+            <h3>Goal Comparison</h3>
             <p className="muted compare-section-note">
-              Status, score, evidence level, and first reason from the Decision Pack scorecard.
+              Shows each goal&apos;s status, score, evidence level, and main reason.
             </p>
             <div className="table-wrap">
               <table className="table">
@@ -1592,15 +1607,15 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Milestone Comparison</h3>
+            <h3>Phase Comparison</h3>
             <p className="muted compare-section-note">
-              Phase checkpoint with verdict, treasury pressure, runway, payout, and net treasury delta.
+              Phase checkpoint with status, payout pressure, reserve runway, cash paid out, and net cash change.
             </p>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Milestone</th>
+                    <th>Phase</th>
                     {filteredRuns.map((run) => (
                       <th key={`${run.id}-milestone`}>{runDisplayLabels.get(run.id) ?? run.scenario.name}</th>
                     ))}
@@ -1608,7 +1623,7 @@ export function CompareConsole({
                 </thead>
                 <tbody>
                   {milestoneRows.length === 0 ? (
-                    <tr><td className="muted" colSpan={filteredRuns.length + 1}>No milestone results yet.</td></tr>
+                    <tr><td className="muted" colSpan={filteredRuns.length + 1}>No phase results yet.</td></tr>
                   ) : milestoneRows.map((milestoneRow) => {
                     const [milestoneKey, milestoneLabel] = milestoneRow.split("::");
                     return (
@@ -1618,7 +1633,7 @@ export function CompareConsole({
                           const milestone = extrasByRunId
                             .get(run.id)
                             ?.milestoneEvaluations.find((item) => item.milestone_key === milestoneKey);
-                          if (!milestone) return <td key={`${run.id}-${milestoneKey}`} className="muted">N/A</td>;
+                          if (!milestone) return <td key={`${run.id}-${milestoneKey}`} className="muted">Not available</td>;
                           return (
                             <td key={`${run.id}-${milestoneKey}`}>
                               <div className="compare-rich-cell">
@@ -1635,7 +1650,7 @@ export function CompareConsole({
                                 <small>
                                   Payout {formatCommonMetricValue("company_actual_payout_out_total", milestone.summary_metrics.company_actual_payout_out_total)}
                                   {" · "}
-                                  Net {formatCommonMetricValue("company_net_treasury_delta_total", milestone.summary_metrics.company_net_treasury_delta_total)}
+                                  Net Cash {formatCommonMetricValue("company_net_treasury_delta_total", milestone.summary_metrics.company_net_treasury_delta_total)}
                                 </small>
                                 {milestone.reasons[0] ? <p>{milestone.reasons[0]}</p> : null}
                               </div>
@@ -1653,10 +1668,10 @@ export function CompareConsole({
 
         {filteredRuns.length > 0 ? (
           <div className="card span-12">
-            <h3>Run Context / Audit Trail</h3>
+            <h3>Result Details</h3>
             <div className="table-wrap">
               <table className="table">
-                <thead><tr><th>Reference</th><th>Scenario</th><th>Data</th><th>Status</th><th>Finished</th></tr></thead>
+                <thead><tr><th>Result Ref</th><th>Scenario</th><th>Data</th><th>Status</th><th>Completed</th></tr></thead>
                 <tbody>
                   {filteredRuns.map((run) => (
                     <tr key={run.id}>
@@ -1664,7 +1679,7 @@ export function CompareConsole({
                       <td>{run.scenario.name}</td>
                       <td>{run.snapshot.name}</td>
                       <td><span className={`badge badge--${run.status === "COMPLETED" ? "candidate" : "neutral"}`}>{getRunStatusLabel(run.status)}</span></td>
-                      <td>{run.completedAt ?? "Pending"}</td>
+                      <td>{run.completedAt ?? "Not completed"}</td>
                     </tr>
                   ))}
                 </tbody>

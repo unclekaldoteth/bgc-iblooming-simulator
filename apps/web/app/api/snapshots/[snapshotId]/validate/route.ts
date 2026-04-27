@@ -74,9 +74,13 @@ export async function POST(
   const issues = validateSnapshot({
     ...snapshot,
     importedFactCount: snapshot._count.memberMonthFacts,
+    latestImportRowCountImported: latestImportRun?.rowCountImported ?? null,
+    latestImportRowCountRaw: latestImportRun?.rowCountRaw ?? null,
+    sourceType: snapshot.sourceType,
     sourceSystems: Array.isArray(snapshot.sourceSystems)
       ? snapshot.sourceSystems.map((value) => String(value))
-      : []
+      : [],
+    validatedVia: snapshot.validatedVia
   });
   const validatedSnapshot = await setSnapshotValidationResult(snapshotId, issues);
 

@@ -191,24 +191,25 @@ export default async function DistributionPage({
       <PageHeader
         eyebrow="Distribution"
         title={`Distribution View · ${getRunReference(runId)}`}
-        description="Where ALPHA issuance, usage, cash-out path, and source-level cashflow concentrate."
+        description="Shows where ALPHA is issued, used, held, cashed out, and which source carries the largest cash impact."
       />
 
       {/* Tab nav */}
       <nav className="tab-nav">
         <Link href={`/runs/${run.id}`} className="tab-item">Summary</Link>
         <Link href={`/distribution/${run.id}`} className="tab-item active">Distribution</Link>
+        <Link href={`/token-flow/${run.id}`} className="tab-item">Token Flow</Link>
         <Link href={`/treasury/${run.id}`} className="tab-item">Treasury</Link>
         <Link href={`/decision-pack/${run.id}`} className="tab-item">Decision Pack</Link>
       </nav>
 
       <section className="page-grid">
         {rawSegmentEntries.length === 0 ? (
-          <Card className="span-12" title="No segment data">
+          <Card className="span-12" title="No breakdown data">
             <div className="empty-state">
               <div className="empty-state-icon">📊</div>
-              <h3>No segment metrics</h3>
-              <p>Segment breakdowns will appear once the run completes.</p>
+              <h3>No breakdown rows</h3>
+              <p>Breakdowns will appear once the result completes.</p>
             </div>
           </Card>
         ) : null}
@@ -217,7 +218,7 @@ export default async function DistributionPage({
           <>
             <Card className="span-12" title="Distribution Snapshot">
               <p className="card-intro">
-                Founder-facing readout of ALPHA concentration before drilling into audit rows.
+                Quick view of ALPHA concentration before the detailed breakdown.
               </p>
               <div className="decision-kpi-grid">
                 <div className="decision-kpi">
@@ -239,29 +240,29 @@ export default async function DistributionPage({
                   </strong>
                 </div>
                 <div className="decision-kpi" data-status={largestTierStatus}>
-                  <span>Largest Tier</span>
-                  <strong>{largestTier ? `${largestTier.label} · ${formatPercent(largestTier.share)}` : "N/A"}</strong>
+                  <span>Largest Member Group</span>
+                  <strong>{largestTier ? `${largestTier.label} · ${formatPercent(largestTier.share)}` : "Not available"}</strong>
                 </div>
                 <div className="decision-kpi">
                   <span>Largest Source</span>
                   <strong>
-                    {largestSource ? `${largestSource.label} · ${formatPercent(largestSource.issuedShare)}` : "N/A"}
+                    {largestSource ? `${largestSource.label} · ${formatPercent(largestSource.issuedShare)}` : "Not available"}
                   </strong>
                 </div>
               </div>
             </Card>
 
-            <Card className="span-6" title="ALPHA Behavior">
+            <Card className="span-6" title="ALPHA Flow">
               <p className="card-intro">
-                Policy-token outcome only: held, used, and ALPHA routed to cash-out path.
+                ALPHA only: held, used, and sent to cash-out.
               </p>
               <AlphaDistributionChart metrics={alphaChartMetrics} />
             </Card>
 
-            <Card className="span-6" title="Member Tier Concentration">
+            <Card className="span-6" title="Member Group Concentration">
               <div className="distribution-section-header">
                 <p className="card-intro">
-                  Share of issued ALPHA by member tier, sorted by concentration.
+                  Share of issued ALPHA by member group, sorted from largest to smallest.
                 </p>
                 {largestTier && largestTier.share >= tierConcentrationWarningPct ? (
                   <span className="badge badge--risky">High concentration</span>
@@ -291,19 +292,19 @@ export default async function DistributionPage({
                   </div>
                   {unclassifiedTier ? (
                     <p className="muted">
-                      Unclassified means the snapshot row has no explicit <code>member_tier</code>, so its issued
-                      ALPHA is grouped separately until tier mapping is closed.
+                      Unclassified means the uploaded row has no <code>member_tier</code>, so its ALPHA is grouped
+                      separately until member group mapping is completed.
                     </p>
                   ) : null}
                 </>
               ) : (
-                <p className="muted">No member-tier distribution rows available.</p>
+                <p className="muted">No member group breakdown available.</p>
               )}
             </Card>
 
-            <Card className="span-12" title="Source System Split">
+            <Card className="span-12" title="Source Split">
               <p className="card-intro">
-                ALPHA distribution and company cashflow are separated so policy-token movement does not get mixed with fiat.
+                ALPHA movement and company money are separated so points and dollars do not get mixed.
               </p>
               <div className="distribution-source-grid">
                 <section className="distribution-subpanel" aria-label="ALPHA by source">
@@ -331,11 +332,11 @@ export default async function DistributionPage({
                   )}
                 </section>
 
-                <section className="distribution-subpanel" aria-label="Cashflow by source">
-                  <h4>Cashflow by Source</h4>
+                <section className="distribution-subpanel" aria-label="Money by source">
+                  <h4>Money by Source</h4>
                   <p className="muted">
-                    Net Delta = Retained Revenue - Actual Payout - Fulfillment Out. Partner Out is shown separately
-                    for audit visibility and is already excluded from Retained Revenue.
+                    Net Cash Change = Revenue Kept - Cash Paid Out - Fulfillment Cost. Partner Payout is shown
+                    separately and is already excluded from Revenue Kept.
                   </p>
                   {sourceRows.length > 0 ? (
                     <div className="table-wrap">
@@ -343,12 +344,12 @@ export default async function DistributionPage({
                         <thead>
                           <tr>
                             <th>Source</th>
-                            <th>Gross In</th>
-                            <th>Retained Revenue</th>
-                            <th>Partner Out</th>
-                            <th>Actual Payout</th>
-                            <th>Fulfillment Out</th>
-                            <th>Net Delta</th>
+                            <th>Cash In</th>
+                            <th>Revenue Kept</th>
+                            <th>Partner Payout</th>
+                            <th>Paid Out</th>
+                            <th>Fulfillment Cost</th>
+                            <th>Net Cash Change</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -374,15 +375,15 @@ export default async function DistributionPage({
                       </table>
                     </div>
                   ) : (
-                    <p className="muted">No source-level cashflow rows available.</p>
+                    <p className="muted">No source-level money rows available.</p>
                   )}
                 </section>
               </div>
             </Card>
 
-            <Card className="span-12" title="Scenario Phase Totals">
+            <Card className="span-12" title="Phase Totals">
               <p className="card-intro">
-                Audit trail by scenario phase. If no custom phase is defined, the whole run appears as Base Scenario.
+                Breakdown by phase. If no custom phase is defined, the whole result appears as Base Phase.
               </p>
               {phaseRows.length > 0 ? (
                 <div className="table-wrap">
@@ -393,7 +394,7 @@ export default async function DistributionPage({
                         <th>ALPHA Issued</th>
                         <th>Used</th>
                         <th>ALPHA Cash-Out</th>
-                        <th>Payout / Inflow</th>
+                        <th>Treasury Pressure</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -410,13 +411,13 @@ export default async function DistributionPage({
                   </table>
                 </div>
               ) : (
-                <p className="muted">No scenario phase totals available.</p>
+                <p className="muted">No phase totals available.</p>
               )}
             </Card>
 
-            <Card className="span-12" title="Raw Segment Metrics">
+            <Card className="span-12" title="Raw Breakdown Rows">
               <details className="distribution-raw-details">
-                <summary>Show raw audit rows ({run.segmentMetrics.length})</summary>
+                <summary>Show raw rows ({run.segmentMetrics.length})</summary>
                 <div className="distribution-raw-grid">
                   {rawSegmentEntries.map(([segmentType, metrics]) => (
                     <section className="distribution-subpanel" key={segmentType}>

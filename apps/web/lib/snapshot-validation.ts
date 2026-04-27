@@ -11,6 +11,10 @@ type SnapshotForValidation = {
   importedFactCount: number;
   fileUri: string;
   sourceSystems: string[];
+  sourceType?: string | null;
+  validatedVia?: string | null;
+  latestImportRowCountRaw?: number | null;
+  latestImportRowCountImported?: number | null;
 };
 
 export function validateSnapshot(snapshot: SnapshotForValidation) {
@@ -31,11 +35,34 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
     issues.push({
       severity: "ERROR",
       issueType: "import_not_completed",
-      message: "Import rows into the snapshot before validation can pass."
+      message: "Import rows into the snapshot before the data check can pass."
+    });
+  }
+
+  const isHybridValidatedSnapshot =
+    snapshot.sourceType === "hybrid_verified" || snapshot.validatedVia === "hybrid_validation";
+  const latestImportedRows =
+    snapshot.latestImportRowCountImported ??
+    snapshot.latestImportRowCountRaw ??
+    null;
+  const expectedImportedRows =
+    latestImportedRows ?? (isHybridValidatedSnapshot ? null : snapshot.recordCount);
+
+  if (
+    expectedImportedRows !== null &&
+    expectedImportedRows > 0 &&
+    snapshot.importedFactCount > 0 &&
+    expectedImportedRows !== snapshot.importedFactCount
+  ) {
+    issues.push({
+      severity: "ERROR",
+      issueType: "record_count_mismatch",
+      message: `Expected imported rows (${expectedImportedRows}) do not match saved monthly rows (${snapshot.importedFactCount}).`
     });
   }
 
   if (
+    isHybridValidatedSnapshot &&
     snapshot.recordCount !== null &&
     snapshot.recordCount > 0 &&
     snapshot.importedFactCount > 0 &&
@@ -43,8 +70,8 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
   ) {
     issues.push({
       severity: "WARNING",
-      issueType: "record_count_mismatch",
-      message: `Expected row count (${snapshot.recordCount}) does not match imported rows (${snapshot.importedFactCount}).`
+      issueType: "source_record_count_differs_from_import_rows",
+      message: `Source rows (${snapshot.recordCount}) differ from imported monthly rows (${snapshot.importedFactCount}); the hybrid check allows this when the latest import count matches.`
     });
   }
 
@@ -58,7 +85,7 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
 
   if (new Set(snapshot.sourceSystems).size !== snapshot.sourceSystems.length) {
     issues.push({
-      severity: "WARNING",
+      severity: "ERROR",
       issueType: "duplicate_source_system",
       message: "Duplicate source system keys were provided and should be cleaned before approval."
     });
@@ -66,7 +93,7 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
 
   if (!/^(s3|https?|file):/i.test(snapshot.fileUri)) {
     issues.push({
-      severity: "WARNING",
+      severity: "ERROR",
       issueType: "file_uri_scheme",
       message: "Snapshot file URI should use an explicit storage scheme such as https:// or file://."
     });
@@ -74,9 +101,9 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
 
   if (coverageDays < MIN_RECOMMENDED_WINDOW_DAYS) {
     issues.push({
-      severity: "WARNING",
+      severity: "ERROR",
       issueType: "coverage_window_short",
-      message: "Snapshot covers less than one year of history and may underfit seasonality."
+      message: "Snapshot covers less than one year, so it may miss seasonal patterns."
     });
   }
 
@@ -84,7 +111,7 @@ export function validateSnapshot(snapshot: SnapshotForValidation) {
     issues.push({
       severity: "WARNING",
       issueType: "coverage_window_large",
-      message: "Snapshot covers an unusually large time window and may blend incompatible business states."
+      message: "Snapshot covers a very long time window and may mix different business phases."
     });
   }
 

@@ -229,6 +229,7 @@ model DatasetSnapshot {
   name              String
   sourceSystems     Json
   canonicalSourceSnapshotKey String?
+  dataFingerprint   String?
   sourceType        String                    @default("compatibility_csv")
   validatedVia      String                    @default("monthly_facts")
   truthNotes        String?
@@ -272,6 +273,7 @@ model DatasetSnapshot {
   @@index([dateFrom, dateTo])
   @@index([archivedAt, createdAt(sort: Desc)])
   @@index([supersededBySnapshotId])
+  @@index([dataFingerprint])
 }
 
 model SnapshotValidationIssue {

@@ -1,10 +1,13 @@
 import Link from "next/link";
 
+import { resolveBaselineModelRuleset } from "@bgc-alpha/baseline-model";
 import { listScenarios, listSnapshots, prisma } from "@bgc-alpha/db";
 import { hasDatabaseUrl } from "@bgc-alpha/db/database-url";
+import { parseFounderSafeScenarioParameters } from "@bgc-alpha/schemas";
 import { Card, PageHeader } from "@bgc-alpha/ui";
 
 import { SummaryMetricsChart } from "@/components/summary-metrics-chart";
+import { getScenarioModeCaveat, getScenarioModeLabel } from "@/lib/common-language";
 import {
   formatSummaryMetricValue,
   summaryMetricDefinitions,
@@ -54,9 +57,9 @@ export default async function OverviewPage() {
           select: {
             id: true,
             completedAt: true,
-            scenario: { select: { name: true } },
+            scenario: { select: { name: true, parameterJson: true } },
             snapshot: { select: { name: true } },
-            modelVersion: { select: { versionName: true } },
+            modelVersion: { select: { versionName: true, rulesetJson: true } },
             summaryMetrics: {
               select: { id: true, metricKey: true, metricValue: true },
               orderBy: { metricKey: "asc" },
@@ -101,6 +104,22 @@ export default async function OverviewPage() {
         return { ...definition, id: metric?.id ?? definition.key, value: metric?.metricValue ?? 0 };
       })
     : [];
+  const latestRunScenarioParameters = latestCompletedRun
+    ? parseFounderSafeScenarioParameters(
+        latestCompletedRun.scenario.parameterJson,
+        {
+          reward_global_factor: resolveBaselineModelRuleset(
+            latestCompletedRun.modelVersion.rulesetJson,
+            latestCompletedRun.modelVersion.versionName
+          ).defaults.reward_global_factor,
+          reward_pool_factor: resolveBaselineModelRuleset(
+            latestCompletedRun.modelVersion.rulesetJson,
+            latestCompletedRun.modelVersion.versionName
+          ).defaults.reward_pool_factor
+        }
+      )
+    : null;
+  const latestRunModeCaveat = getScenarioModeCaveat(latestRunScenarioParameters?.scenario_mode);
 
   const systemBadge = !databaseConfigured
     ? "Setup required"
@@ -220,7 +239,17 @@ export default async function OverviewPage() {
                 <span className="badge badge--accent">
                   {latestCompletedRun.snapshot.name}
                 </span>
+                {latestRunScenarioParameters ? (
+                  <span className={`badge ${latestRunScenarioParameters.scenario_mode === "advanced_forecast" ? "badge--risky" : "badge--info"}`}>
+                    {getScenarioModeLabel(latestRunScenarioParameters.scenario_mode)}
+                  </span>
+                ) : null}
               </div>
+              {latestRunModeCaveat ? (
+                <p className="muted" style={{ fontSize: "0.82rem", marginTop: "-0.25rem" }}>
+                  {latestRunModeCaveat}
+                </p>
+              ) : null}
               <SummaryMetricsChart
                 metrics={latestRunSummaryMetrics.map((m) => ({
                   key: m.key,

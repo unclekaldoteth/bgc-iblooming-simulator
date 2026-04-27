@@ -21,6 +21,8 @@ type GuardrailStatus = "allowed" | "conditional" | "locked";
 type ParameterKind = "number" | "currency" | "percent" | "string" | "integer" | "months";
 
 export type CompareDecisionSupportParameters = {
+  scenario_mode_label: string;
+  forecast_mode_caveat: string | null;
   k_pc: number;
   k_sp: number;
   reward_global_factor: number;
@@ -216,24 +218,34 @@ type ParameterDescriptor = {
 
 const parameterDescriptors: ParameterDescriptor[] = [
   {
+    key: "scenario_mode_label",
+    symbol: "scenario_mode",
+    label: "Result mode",
+    description: "Controls whether the result uses uploaded data only or adds a forecast.",
+    kind: "string",
+    guardrailStatus: "conditional",
+    decisionOwner: "Leadership / Strategy",
+    rationale: "Add Forecast must be labeled as estimate-based, not observed data."
+  },
+  {
     key: "k_pc",
     symbol: "k_pc",
     label: "k_pc",
-    description: "PC-to-ALPHA conversion coefficient applied on top of fixed PC truth.",
+    description: "Multiplier for converting PC into ALPHA.",
     kind: "number",
     guardrailStatus: "allowed",
-    decisionOwner: "Founder / Tokenomics",
-    rationale: "Allowed ALPHA conversion overlay on top of PC truth."
+    decisionOwner: "Leadership / Tokenomics",
+    rationale: "Editable PC-to-ALPHA conversion."
   },
   {
     key: "k_sp",
     symbol: "k_sp",
     label: "k_sp",
-    description: "SP-to-ALPHA conversion coefficient applied on top of fixed SP/LTS truth.",
+    description: "Multiplier for converting SP or LTS into ALPHA.",
     kind: "number",
     guardrailStatus: "allowed",
-    decisionOwner: "Founder / Tokenomics",
-    rationale: "Allowed ALPHA conversion overlay on top of SP/LTS truth."
+    decisionOwner: "Leadership / Tokenomics",
+    rationale: "Editable SP/LTS-to-ALPHA conversion."
   },
   {
     key: "cap_user_monthly",
@@ -242,7 +254,7 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Maximum ALPHA issuance allowed per user each month.",
     kind: "string",
     guardrailStatus: "allowed",
-    decisionOwner: "Founder / Tokenomics",
+    decisionOwner: "Leadership / Tokenomics",
     rationale: "User-level monthly cap changes policy exposure without rewriting historical events."
   },
   {
@@ -252,18 +264,18 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Maximum ALPHA issuance allowed per group each month.",
     kind: "string",
     guardrailStatus: "allowed",
-    decisionOwner: "Founder / Tokenomics",
+    decisionOwner: "Leadership / Tokenomics",
     rationale: "Group-level monthly cap changes policy exposure without rewriting historical events."
   },
   {
     key: "sink_target",
     symbol: "sink_target",
-    label: "Sink target",
-    description: "Desired share of ALPHA expected to recycle into internal utility sinks.",
+    label: "Internal use target",
+    description: "Desired share of ALPHA expected to be used inside the product ecosystem.",
     kind: "number",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Product",
-    rationale: "Sink posture is a scenario assumption about desired internal use."
+    decisionOwner: "Leadership / Product",
+    rationale: "Internal use target is an assumption about future product adoption."
   },
   {
     key: "cashout_mode",
@@ -272,7 +284,7 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Release mode used for the ALPHA cash-out path.",
     kind: "string",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Finance",
+    decisionOwner: "Leadership / Finance",
     rationale: "Cash-out release policy is an ALPHA overlay assumption."
   },
   {
@@ -282,17 +294,17 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Minimum value allowed to leave through one cash-out release.",
     kind: "currency",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Finance",
+    decisionOwner: "Leadership / Finance",
     rationale: "Cash-out minimum is an ALPHA overlay assumption."
   },
   {
     key: "cashout_fee_bps",
     symbol: "cashout_fee_bps",
     label: "Cash-out fee",
-    description: "Fee charged on each cash-out release, expressed in basis points.",
+    description: "Fee charged on each cash-out release.",
     kind: "integer",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Finance",
+    decisionOwner: "Leadership / Finance",
     rationale: "Cash-out fee is an ALPHA overlay assumption."
   },
   {
@@ -302,8 +314,8 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Number of release windows opened each year.",
     kind: "integer",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Finance / Ops",
-    rationale: "Cash-out windows are scenario assumptions, not historical truth."
+    decisionOwner: "Leadership / Finance / Ops",
+    rationale: "Cash-out schedule is a scenario assumption, not observed data."
   },
   {
     key: "cashout_window_days",
@@ -312,28 +324,28 @@ const parameterDescriptors: ParameterDescriptor[] = [
     description: "Duration of each cash-out release window.",
     kind: "integer",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Ops",
-    rationale: "Cash-out window duration is a scenario assumption, not historical truth."
+    decisionOwner: "Leadership / Ops",
+    rationale: "Cash-out window length is a scenario assumption, not observed data."
   },
   {
     key: "projection_horizon_months",
     symbol: "projection_horizon_months",
-    label: "Projection horizon",
-    description: "How many months the scenario projects beyond the observed data window.",
+    label: "Forecast length",
+    description: "How many months the result projects beyond uploaded history.",
     kind: "months",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / Strategy",
+    decisionOwner: "Leadership / Strategy",
     rationale: "Projection horizon extends beyond observed history and must be framed as an assumption."
   },
   {
     key: "milestone_count",
     symbol: "milestone_count",
-    label: "Milestone count",
-    description: "Number of staged policy checkpoints defined inside a scenario.",
+    label: "Phase count",
+    description: "Number of staged checkpoints defined inside a scenario.",
     kind: "integer",
     guardrailStatus: "conditional",
-    decisionOwner: "Founder / PMO",
-    rationale: "Milestone schedule is a staged policy assumption, not historical truth."
+    decisionOwner: "Leadership / PMO",
+    rationale: "Phase schedule is a staged policy assumption, not observed data."
   }
 ];
 
@@ -371,7 +383,7 @@ function formatParameterValue(
 function formatValueSet(descriptor: ParameterDescriptor, values: Array<string | number | null>) {
   const normalizedValues = [...new Set(values.map((value) => value ?? "__null__"))];
   if (normalizedValues.length === 0) {
-    return "n/a";
+    return "Not set";
   }
 
   if (descriptor.kind === "number" || descriptor.kind === "currency" || descriptor.kind === "integer") {
@@ -381,7 +393,7 @@ function formatValueSet(descriptor: ParameterDescriptor, values: Array<string | 
       .sort((left, right) => left - right);
 
     if (numericValues.length === 0) {
-      return "n/a";
+      return "Not set";
     }
 
     if (numericValues.length === 1 || numericValues[0] === numericValues[numericValues.length - 1]) {
@@ -467,7 +479,7 @@ export function buildParameterRangeSynthesis(
           ? formatValueSet(descriptor, rejectedValues)
           : null,
       testedValues: formatValueSet(descriptor, testedValues),
-      evidence: `${candidateRuns.length} ready · ${riskyRuns.length} review · ${rejectedRuns.length} rejected`,
+      evidence: `${candidateRuns.length} ready · ${riskyRuns.length} need review · ${rejectedRuns.length} do not use`,
       rationale: descriptor.rationale
     };
   });
@@ -482,7 +494,7 @@ export function buildRecommendedPilotEnvelope(
       status: "blocked",
       recommendedRunId: null,
       recommendedRunLabel: null,
-      summary: "No selected runs are available to build a pilot envelope.",
+      summary: "No selected results are available to build a recommended setup.",
       items: [],
       reasons: []
     };
@@ -519,13 +531,13 @@ export function buildRecommendedPilotEnvelope(
   });
 
   const reasons = [
-    `Best current candidate: ${bestRun.label}.`,
-    `Net treasury delta ${currencyFormatter.format(bestRun.summaryMetrics.company_net_treasury_delta_total ?? 0)} with treasury pressure ${decimalFormatter.format(bestRun.summaryMetrics.payout_inflow_ratio ?? 0)}x.`,
+    `Best current result: ${bestRun.label}.`,
+    `Net cash change ${currencyFormatter.format(bestRun.summaryMetrics.company_net_treasury_delta_total ?? 0)} with treasury pressure ${decimalFormatter.format(bestRun.summaryMetrics.payout_inflow_ratio ?? 0)}x.`,
     `Reserve runway ${decimalFormatter.format(bestRun.summaryMetrics.reserve_runway_months ?? 0)} months and top 10% reward share ${decimalFormatter.format(bestRun.summaryMetrics.reward_concentration_top10_pct ?? 0)}%.`
   ];
 
   if (bestRun.historicalTruthCoverage) {
-    reasons.push(`Historical truth coverage is ${bestRun.historicalTruthCoverage.status}.`);
+    reasons.push(`Imported data coverage: ${bestRun.historicalTruthCoverage.status}.`);
   }
 
   const firstDecisionBlocker = bestRun.decisionLog.find((entry) => entry.status === "blocked");
@@ -539,10 +551,10 @@ export function buildRecommendedPilotEnvelope(
     recommendedRunLabel: bestRun.label,
     summary:
       status === "recommended"
-        ? "Selected runs already define a usable pilot envelope. The values below are taken from the strongest ready candidate while keeping conditional assumptions explicit."
+        ? "Selected results already define a usable recommended setup. The values below come from the strongest ready result while keeping assumptions visible."
         : status === "review"
-          ? "Selected runs do not yet produce a clean ready envelope. The values below come from the least risky option and still need founder review."
-          : "Selected runs do not yet define a defensible pilot envelope. Use the parameter ranges and decision log to understand what must be changed first.",
+          ? "Selected results do not yet produce a clean recommended setup. The values below come from the least risky option and still need review."
+          : "Selected results do not yet define a usable setup. Use the parameter ranges and decision notes to see what must change first.",
     items,
     reasons
   };
@@ -629,18 +641,18 @@ function summarizeFinancialTradeoff(
   const payout = run.summaryMetrics.company_actual_payout_out_total ?? 0;
 
   if (netDelta <= 0) {
-    return "Current envelope is treasury-negative and should be treated as a warning path, not a default.";
+    return "This setup has negative net cash and should be treated as a warning path, not a default.";
   }
 
   if (pressure < 0.25 && leakageRatePct < 5) {
-    return "Treasury protection dominates; founder tradeoff is lower member release in exchange for stronger reserve posture.";
+    return "Treasury protection is the priority; the tradeoff is lower member cash release in exchange for stronger reserves.";
   }
 
   if (payout > 0 && pressure < 1) {
-    return "Envelope still stays treasury-positive while allowing member release; the main tradeoff is how much liquidity to permit now versus later.";
+    return "This setup stays cash-positive while allowing member release; the tradeoff is how much cash-out to allow now versus later.";
   }
 
-  return "Envelope is still usable, but tradeoffs between member attractiveness and reserve protection should stay explicit.";
+  return "This setup is usable, but the tradeoff between member attractiveness and reserve protection should stay clear.";
 }
 
 export function buildCompareFinancialScenarioView(
@@ -648,7 +660,7 @@ export function buildCompareFinancialScenarioView(
 ): CompareFinancialScenarioViewArtifact {
   if (runs.length === 0) {
     return {
-      summary: "No selected runs are available to build a founder financial view.",
+      summary: "No selected results are available to build a money view.",
       rows: []
     };
   }
@@ -675,8 +687,8 @@ export function buildCompareFinancialScenarioView(
       verdict: (run.verdict as CompareFinancialScenarioViewRow["verdict"]) ?? "pending",
       summary:
         netTreasuryDelta >= 0
-          ? `${currencyFormatter.format(netTreasuryDelta)} net treasury delta with ${decimalFormatter.format(treasuryPressure)}x pressure.`
-          : `${currencyFormatter.format(netTreasuryDelta)} net treasury delta and ${decimalFormatter.format(treasuryPressure)}x pressure.`,
+          ? `${currencyFormatter.format(netTreasuryDelta)} net cash change with ${decimalFormatter.format(treasuryPressure)}x pressure.`
+          : `${currencyFormatter.format(netTreasuryDelta)} net cash change and ${decimalFormatter.format(treasuryPressure)}x pressure.`,
       tradeoff: summarizeFinancialTradeoff(run, leakageRatePct),
       grossCashIn,
       retainedRevenue,
@@ -693,7 +705,7 @@ export function buildCompareFinancialScenarioView(
 
   return {
     summary:
-      "Founder-facing financial readout. This compresses each compared run into business-cashflow language: money in, liability load, payout/fulfillment leakage, and resulting treasury posture.",
+      "Money view for each compared result: cash in, rewards owed, cash paid out, fulfillment cost, and treasury posture.",
     rows
   };
 }
@@ -705,7 +717,7 @@ export function buildCompareSimulationSummary(
   if (runs.length === 0) {
     return {
       status: "blocked",
-      summary: "No selected runs are available to build a simulation summary.",
+      summary: "No selected results are available to build a summary.",
       rows: []
     };
   }
@@ -718,35 +730,49 @@ export function buildCompareSimulationSummary(
   const coverage = buildCoverageSummary(runs);
   const uniqueVerdicts = [...new Set(runs.map((run) => run.verdict))];
   const bestRun = runs.find((run) => run.id === recommendedEnvelope.recommendedRunId) ?? sortRunsForRecommendation(runs)[0];
+  const advancedForecastRuns = runs.filter((run) => run.parameters.forecast_mode_caveat);
 
   return {
     status: recommendedEnvelope.status,
     summary:
       recommendedEnvelope.status === "recommended"
-        ? "Selected runs already produce a usable pilot envelope, but the historical truth layer still needs to stay explicit."
+        ? "Selected results are usable for a pilot package, but the uploaded data source must stay clear."
         : recommendedEnvelope.status === "review"
-          ? "Selected runs produce a working review envelope, but founder review is still needed before anything is treated as a default."
-          : "Selected runs are still blocked from becoming a defensible pilot envelope and should be read as exploration only.",
+          ? "Selected results are useful for review, but a final decision is still needed before anything becomes the default."
+          : "Selected results are still blocked from becoming a usable pilot setup and should be read as exploration only.",
     rows: [
       {
         key: "snapshot_basis",
-        label: "Snapshot basis",
+        label: "Data source",
         status: snapshotNames.length === 1 ? "ready" : "review",
         currentReadout:
           snapshotNames.length === 1
             ? snapshotNames[0]!
-            : `${snapshotNames.length} snapshots selected`,
+            : `${snapshotNames.length} data snapshots selected`,
         implication:
           snapshotNames.length === 1
-            ? "All compared runs sit on the same imported business truth."
-            : "Mixed snapshot truth reduces founder confidence in the comparison."
+            ? "All compared results use the same uploaded data."
+            : "Mixed snapshots make the comparison harder to trust."
       },
       {
         key: "scenario_set",
-        label: "Scenario set",
+        label: "Selected results",
         status: "info",
         currentReadout: labels.join(", "),
-        implication: "This compare set tests policy overlays on top of fixed imported history, not rewritten historical truth."
+        implication: "This comparison tests policy on top of uploaded data; it does not rewrite past data."
+      },
+      {
+        key: "scenario_mode",
+        label: "Result mode",
+        status: advancedForecastRuns.length > 0 ? "review" : "ready",
+        currentReadout:
+          advancedForecastRuns.length > 0
+            ? `${advancedForecastRuns.length} forecast result`
+            : "Imported data only",
+        implication:
+          advancedForecastRuns.length > 0
+            ? "Compare and Whitepaper must describe growth assumptions as estimates."
+            : "Growth Forecast is off in all selected results."
       },
       {
         key: "recommendation",
@@ -757,45 +783,45 @@ export function buildCompareSimulationSummary(
             : recommendedEnvelope.status === "review"
               ? "review"
               : "blocked",
-        currentReadout: `${describeVerdictStatus(recommendedEnvelope.status)} · ${recommendedEnvelope.recommendedRunLabel ?? "No strongest run"}`,
+        currentReadout: `${describeVerdictStatus(recommendedEnvelope.status)} · ${recommendedEnvelope.recommendedRunLabel ?? "No strongest result"}`,
         implication: recommendedEnvelope.summary
       },
       {
         key: "treasury_readout",
-        label: "Treasury readout",
+        label: "Treasury safety",
         status: Math.max(...pressures) < 1 ? "ready" : "review",
         currentReadout: `Pressure ${decimalFormatter.format(Math.min(...pressures))}x → ${decimalFormatter.format(Math.max(...pressures))}x · Runway ${decimalFormatter.format(Math.min(...runways))} → ${decimalFormatter.format(Math.max(...runways))} months`,
         implication:
           Math.max(...pressures) < 1
-            ? "Treasury is not the immediate blocker in the current compare set."
-            : "Treasury pressure is overtaking recognized revenue in part of the compare set."
+            ? "Treasury is not the immediate blocker in this comparison."
+            : "Payout pressure is larger than revenue support in part of this comparison."
       },
       {
         key: "fairness_readout",
-        label: "Fairness readout",
+        label: "Fairness",
         status: Math.max(...top10Shares) > 60 ? "blocked" : "review",
         currentReadout: `Top 10% share ${decimalFormatter.format(Math.min(...top10Shares))}% → ${decimalFormatter.format(Math.max(...top10Shares))}%`,
         implication:
           Math.max(...top10Shares) > 60
-            ? "Concentration remains the main blocker before a pilot policy can be locked."
-            : "Concentration is improving, but still needs explicit founder review."
+            ? "Reward concentration is still the main blocker before a pilot policy can be locked."
+            : "Reward concentration is improving, but still needs an explicit decision."
       },
       {
         key: "truth_posture",
-        label: "Truth posture",
+        label: "Data quality",
         status: coverage.weak > 0 ? "review" : coverage.partial > 0 ? "review" : "ready",
         currentReadout: `${coverage.strong} strong · ${coverage.partial} partial · ${coverage.weak} weak`,
         implication:
           coverage.weak > 0 || coverage.partial > 0
-            ? "The compare set is usable for working decisions, but not yet canonical-close."
-            : "Truth coverage is uniformly strong across the selected runs."
+            ? "This comparison is usable for working decisions, but still has data gaps."
+            : "Data quality is strong across the selected results."
       },
       {
         key: "best_run",
-        label: "Best current run",
+        label: "Best current result",
         status: bestRun?.verdict === "candidate" ? "ready" : bestRun?.verdict === "risky" ? "review" : "blocked",
-        currentReadout: bestRun ? `${bestRun.label} · Net ${currencyFormatter.format(bestRun.summaryMetrics.company_net_treasury_delta_total ?? 0)}` : "No best run",
-        implication: bestRun ? `Current strongest run based on verdict, treasury pressure, runway, and concentration ordering.` : "No run available for ranking."
+        currentReadout: bestRun ? `${bestRun.label} · Net Cash ${currencyFormatter.format(bestRun.summaryMetrics.company_net_treasury_delta_total ?? 0)}` : "No best result",
+        implication: bestRun ? `Current strongest result based on status, treasury pressure, runway, and concentration.` : "No result available for ranking."
       }
     ]
   };
@@ -809,7 +835,7 @@ export function buildCompareExecutiveStatusMemo(
   if (runs.length === 0) {
     return {
       status: "blocked",
-      summary: "No selected runs are available to build an executive status memo.",
+      summary: "No selected results are available to build a status memo.",
       rows: []
     };
   }
@@ -821,21 +847,22 @@ export function buildCompareExecutiveStatusMemo(
   const top10Shares = runs.map((run) => run.summaryMetrics.reward_concentration_top10_pct ?? 0);
   const pendingFounder = founderQuestionQueue.filter((row) => row.status === "pending_founder").length;
   const blockedFounder = founderQuestionQueue.filter((row) => row.status === "blocked").length;
+  const advancedForecastRuns = runs.filter((run) => run.parameters.forecast_mode_caveat);
   const mainBlocker =
     Math.max(...top10Shares) > 60
       ? "Reward concentration"
       : coverage.weak > 0 || coverage.partial > 0
-        ? "Truth coverage"
+        ? "Data quality"
         : pendingFounder > 0
-          ? "Founder decision backlog"
+          ? "Open decisions"
           : "No immediate blocker";
 
   return {
     status: recommendedEnvelope.status,
     summary:
       recommendedEnvelope.status === "blocked"
-        ? "The current compare set is still exploratory and should not be treated as a founder-ready pilot package."
-        : "The current compare set is strong enough to drive working founder documents, but final closure still depends on explicit decisions and caveats.",
+        ? "The current comparison is still exploratory and should not be treated as a ready pilot package."
+        : "The current comparison is strong enough for working documents, but final closure still depends on explicit decisions and caveats.",
     rows: [
       {
         key: "delivery_state",
@@ -848,7 +875,7 @@ export function buildCompareExecutiveStatusMemo(
               : "blocked",
         currentReadout:
           recommendedEnvelope.status === "recommended"
-            ? "Working founder package can be assembled now."
+            ? "Working package can be assembled now."
             : recommendedEnvelope.status === "review"
               ? "Working package is usable, but still review-grade."
               : "Exploration only",
@@ -857,32 +884,45 @@ export function buildCompareExecutiveStatusMemo(
             ? "Simulation outputs are strong enough to support v1 document drafting."
             : recommendedEnvelope.status === "review"
               ? "Documents can be updated on a working basis, but should not be framed as final locked policy."
-              : "Do not close Whitepaper v1 or Tokenflow v1 on this compare set."
+              : "Do not close Whitepaper v1 or Token Flow v1 on this comparison."
       },
       {
         key: "working_truth_basis",
-        label: "Working truth basis",
+        label: "Working data basis",
         status: coverage.weak > 0 || coverage.partial > 0 ? "review" : "ready",
         currentReadout: `${coverage.strong} strong · ${coverage.partial} partial · ${coverage.weak} weak`,
         implication:
           coverage.weak > 0 || coverage.partial > 0
-            ? "Accepted hybrid truth is usable for working drafts, but canonical-gap caveats must stay visible."
-            : "Truth coverage is strong enough to support tighter founder claims."
+            ? "Accepted hybrid data can be used for drafts, but data-gap notes must stay visible."
+            : "Data coverage is strong enough for clearer claims."
       },
       {
         key: "current_envelope",
-        label: "Current strongest envelope",
+        label: "Current strongest setup",
         status:
           bestRun?.verdict === "candidate"
             ? "ready"
             : bestRun?.verdict === "risky"
               ? "review"
               : "blocked",
-        currentReadout: bestRun ? `${bestRun.label} · ${getFounderScenarioPosture(bestRun)}` : "No strongest run",
+        currentReadout: bestRun ? `${bestRun.label} · ${getFounderScenarioPosture(bestRun)}` : "No strongest result",
         implication:
           bestRun
-            ? "Use this run as the current working anchor for summary, Whitepaper v1, and Tokenflow v1 updates."
+            ? "Use this result as the current working anchor for Summary, Whitepaper v1, and Token Flow v1 updates."
             : "No stable anchor exists yet."
+      },
+      {
+        key: "forecast_caveat",
+        label: "Forecast caveat",
+        status: advancedForecastRuns.length > 0 ? "review" : "ready",
+        currentReadout:
+          advancedForecastRuns.length > 0
+            ? `${advancedForecastRuns.length} forecast result`
+            : "Imported data only",
+        implication:
+          advancedForecastRuns.length > 0
+            ? "Documents can use these outputs only if forecast assumptions are clearly stated."
+            : "Scenario mode adds no growth caveat."
       },
       {
         key: "main_blocker",
@@ -892,23 +932,23 @@ export function buildCompareExecutiveStatusMemo(
         implication:
           mainBlocker === "Reward concentration"
             ? "Fairness is still the main closure risk even if treasury remains positive."
-            : mainBlocker === "Truth coverage"
-              ? "Truth caveats must stay explicit in any founder-facing draft."
-              : mainBlocker === "Founder decision backlog"
-                ? "Simulation has done its job; closure now depends on explicit founder choices."
+            : mainBlocker === "Data quality"
+              ? "Data-gap notes must stay explicit in any draft."
+              : mainBlocker === "Open decisions"
+                ? "Simulation has done its job; closure now depends on explicit choices."
                 : "No single blocker dominates the current compare set."
       },
       {
         key: "founder_decisions",
-        label: "Immediate founder decisions",
+        label: "Immediate decisions",
         status: blockedFounder > 0 ? "blocked" : pendingFounder > 0 ? "review" : "ready",
         currentReadout: `${pendingFounder} pending · ${blockedFounder} blocked`,
         implication:
           blockedFounder > 0
-            ? "At least one decision must be resolved before the current envelope can be promoted."
+            ? "At least one decision must be resolved before the current setup can be promoted."
             : pendingFounder > 0
-              ? "The package is ready for founder review, but not all choices are locked."
-              : "No outstanding founder decision is currently blocking closure."
+              ? "The package is ready for review, but not all choices are locked."
+              : "No outstanding decision is currently blocking closure."
       }
     ]
   };
@@ -929,7 +969,7 @@ export function buildCompareParameterRegistry(
           descriptor,
           workingDefaultRun.parameters[row.parameterKey as keyof CompareDecisionSupportParameters]
         )
-      : "n/a";
+      : "Not set";
 
     return {
       parameterKey: row.parameterKey,
@@ -958,23 +998,23 @@ export function buildCompareTechnicalImplementationPlan(
 
   return {
     summary:
-      "Technical implementation should now stay focused on packaging and closure. Do not expand engine scope unless a blocker materially prevents Simulation Summary, Whitepaper v1, or Tokenflow v1 from closing.",
+      "Build work should now stay focused on packaging and closure. Do not expand engine scope unless a blocker prevents Summary, Whitepaper v1, or Token Flow v1 from closing.",
     rows: [
       {
         key: "truth_basis_lock",
-        label: "Lock working truth basis",
+        label: "Lock the working data basis",
         owner: "Data / Ops / Legal",
         status: hasWorkingTruthGap ? "in_progress" : "ready",
         nextAction:
           hasWorkingTruthGap
-            ? "Treat accepted hybrid truth as the working basis and keep canonical-gap caveats explicit in v1 documents."
-            : "Use the selected snapshot truth as the founder-facing basis without extra caveat escalation.",
-        whyItMatters: "All downstream Simulation Summary, Whitepaper, and Tokenflow drafting depends on a stable truth basis."
+            ? "Use the accepted hybrid data as the working basis and keep data-gap notes visible in v1 documents."
+            : "Use the selected snapshot as the working data basis.",
+        whyItMatters: "Summary, Whitepaper, and Token Flow need a stable data basis."
       },
       {
         key: "pilot_envelope_lock",
-        label: "Lock pilot envelope",
-        owner: "Founder / Finance / Product",
+        label: "Lock recommended setup",
+        owner: "Leadership / Finance / Product",
         status:
           recommendedEnvelope.status === "blocked"
             ? "blocked"
@@ -986,32 +1026,32 @@ export function buildCompareTechnicalImplementationPlan(
         nextAction:
           recommendedEnvelope.recommendedRunLabel
             ? `Review and, if accepted, adopt ${recommendedEnvelope.recommendedRunLabel} as the working pilot baseline.`
-            : "Re-run comparison until a strongest current envelope exists.",
-        whyItMatters: "The chosen envelope is the numeric basis for all v1 tokenomics communication."
+            : "Rerun comparison until a strongest current result exists.",
+        whyItMatters: "The chosen setup is the numeric basis for all v1 tokenomics communication."
       },
       {
         key: "doc_binding",
-        label: "Bind founder documents to simulation exports",
+        label: "Bind documents to simulation exports",
         owner: "Product / Strategy / PMO",
         status: "ready",
-        nextAction: "Use structured compare exports for Simulation Summary, Whitepaper v1, and Tokenflow v1 drafting instead of copying manual numbers.",
-        whyItMatters: "This prevents document drift and keeps all founder-facing material tied to the current compare set."
+        nextAction: "Use structured compare exports for Summary, Whitepaper v1, and Token Flow v1 drafting instead of copying manual numbers.",
+        whyItMatters: "This prevents document drift and keeps all materials tied to the current comparison."
       },
       {
         key: "exec_package",
-        label: "Close founder package",
-        owner: "Founder Office / PMO",
+        label: "Close review package",
+        owner: "Leadership Office / PMO",
         status: hasFounderDecisionBlocker ? "blocked" : "in_progress",
-        nextAction: "Finalize Executive Status Memo, Decision Log, and Technical Implementation Plan using the current compare artifacts.",
-        whyItMatters: "The brief asks for a decision package, not just scenario UI."
+        nextAction: "Finalize Status Memo, Decision Notes, and Next Build Steps using the current comparison.",
+        whyItMatters: "The brief asks for a decision package, not just the scenario screen."
       },
       {
         key: "canonical_followup",
-        label: "Canonical fidelity follow-up",
+        label: "Source detail follow-up",
         owner: "Data / Engineering",
         status: "deferred",
-        nextAction: "Treat full canonical/event-native closure as post-v1 hardening work unless it becomes a blocking claim issue.",
-        whyItMatters: "This is important for later rigor, but it should not expand current scope and delay the brief package."
+        nextAction: "Treat full source-detail closure as post-v1 hardening work unless it blocks an important claim.",
+        whyItMatters: "This is important for later rigor, but it should not delay the current brief package."
       }
     ]
   };
@@ -1049,17 +1089,17 @@ export function buildCompareFounderQuestionQueue(
           : recommendedEnvelope.status === "review"
             ? "pending_founder"
             : "blocked",
-      question: "Should the current strongest run be promoted into the working pilot baseline?",
+      question: "Should the current strongest result become the working pilot baseline?",
       whyNow:
         recommendedEnvelope.recommendedRunLabel
-          ? `${recommendedEnvelope.recommendedRunLabel} is currently the least risky envelope in the selected set.`
-          : "No strongest run is available yet.",
-      decisionOwner: "Founder",
+          ? `${recommendedEnvelope.recommendedRunLabel} is currently the least risky setup in the selected results.`
+          : "No strongest result is available yet.",
+      decisionOwner: "Leadership",
       recommendedDirection:
         recommendedEnvelope.recommendedRunLabel
           ? `Treat ${recommendedEnvelope.recommendedRunLabel} as the working review baseline, not the final production lock.`
-          : "Do not lock a baseline until compare produces a stronger candidate.",
-      decisionOptions: "Adopt current strongest run · Keep comparison open · Tighten levers and rerun"
+          : "Do not lock a baseline until the comparison produces a stronger result.",
+      decisionOptions: "Adopt current strongest result · Keep comparison open · Tighten settings and rerun"
     }
   ];
 
@@ -1067,11 +1107,11 @@ export function buildCompareFounderQuestionQueue(
     questions.push({
       key: "conditional_policy_levers",
       status: "pending_founder",
-      question: "Which conditional policy assumptions should be chosen for Phase 1?",
-      whyNow: `The compared runs still vary on ${pendingFounderLevers.join(", ")}.`,
-      decisionOwner: "Founder / Finance / Product",
+      question: "Which policy assumptions should be chosen for Phase 1?",
+      whyNow: `The compared results still vary on ${pendingFounderLevers.join(", ")}.`,
+      decisionOwner: "Leadership / Finance / Product",
       recommendedDirection: recommendedRun
-        ? `Stay close to the current strongest envelope: ${cashoutLevers || "use the least-risk release posture from compare"}.`
+        ? `Stay close to the current strongest setup: ${cashoutLevers || "use the lowest-risk release posture from compare"}.`
         : "Use the least-risk tested assumption set until a stronger compare result exists.",
       decisionOptions: "Tighter release posture · Moderate release posture · More attractive member-facing posture"
     });
@@ -1080,23 +1120,23 @@ export function buildCompareFounderQuestionQueue(
   questions.push({
     key: "issuance_envelope_choice",
     status: "pending_founder",
-    question: "How aggressive should the Phase 1 issuance envelope be?",
+    question: "How aggressive should Phase 1 ALPHA issuance be?",
     whyNow: "k_pc, k_sp, and monthly caps materially shift issuance, treasury pressure, and concentration.",
-    decisionOwner: "Founder / Tokenomics",
+    decisionOwner: "Leadership / Tokenomics",
     recommendedDirection: recommendedRun
-      ? `Keep issuance close to the least-risk tested envelope: ${issuanceLevers}.`
+      ? `Keep issuance close to the least-risk tested setup: ${issuanceLevers}.`
       : "Prefer the lower-risk issuance range until fairness and payout behavior improve.",
-    decisionOptions: "Safety-first envelope · Moderate envelope · Expansion envelope"
+    decisionOptions: "Safety-first setup · Moderate setup · Expansion setup"
   });
 
   if (Math.max(...top10Shares) > 60) {
     questions.push({
       key: "fairness_gate",
       status: "blocked",
-      question: "What fairness threshold must be cleared before the pilot is treated as founder-ready?",
-      whyNow: `Top 10% concentration still sits between ${decimalFormatter.format(Math.min(...top10Shares))}% and ${decimalFormatter.format(Math.max(...top10Shares))}% across the selected set.`,
-      decisionOwner: "Founder",
-      recommendedDirection: "Keep pilot lock blocked until a formal fairness threshold is agreed and the selected envelope clears it.",
+      question: "What fairness threshold must be cleared before the pilot is treated as ready?",
+      whyNow: `Top 10% concentration still sits between ${decimalFormatter.format(Math.min(...top10Shares))}% and ${decimalFormatter.format(Math.max(...top10Shares))}% across the selected results.`,
+      decisionOwner: "Leadership",
+      recommendedDirection: "Keep pilot lock blocked until a formal fairness threshold is agreed and the selected setup clears it.",
       decisionOptions: "Block until concentration improves · Allow pilot with explicit exception · Redesign fairness controls first"
     });
   }
@@ -1105,11 +1145,11 @@ export function buildCompareFounderQuestionQueue(
     questions.push({
       key: "working_truth_posture",
       status: "pending_founder",
-      question: "Can the accepted hybrid snapshot be treated as the working truth basis for v1 documents?",
-      whyNow: decisionLog.find((entry) => entry.key === "truth_coverage_gap")?.rationale ?? "Truth coverage is not uniformly strong across the selected set.",
-      decisionOwner: "Founder / Data / Legal",
-      recommendedDirection: "Use accepted hybrid truth for Simulation Summary, Whitepaper v1, and Tokenflow v1 working drafts, while keeping canonical-gap caveats explicit.",
-      decisionOptions: "Use as working basis with caveat · Delay document closure until stronger truth coverage · Narrow claims to fully covered areas only"
+      question: "Can the accepted hybrid snapshot be used as the basis for v1 documents?",
+      whyNow: decisionLog.find((entry) => entry.key === "truth_coverage_gap")?.rationale ?? "Data coverage is not equally strong across all results.",
+      decisionOwner: "Leadership / Data / Legal",
+      recommendedDirection: "Use the accepted hybrid data for Summary, Whitepaper v1, and Token Flow v1 drafts, with data-gap notes kept visible.",
+      decisionOptions: "Use as working basis with caveats · Delay documents until data is stronger · Limit claims to fully covered areas"
     });
   }
 
@@ -1145,24 +1185,24 @@ export function buildCompareDecisionLog(
   const log: CompareDecisionLogEntry[] = [
     {
       key: "understanding_doc_truth",
-      title: "Historical business truth stays fixed across compared runs",
+      title: "Uploaded business data stays unchanged during compare",
       status: "fixed_truth",
       owner: "Understanding Doc",
-      rationale: "Compare reads selected scenarios on top of snapshot truth; scenario overlays do not rewrite imported reward or cashflow history."
+      rationale: "Compare reads scenario settings on top of uploaded data; scenarios do not rewrite reward or cashflow data."
     },
     {
       key: "pilot_envelope_recommendation",
-      title: "Pilot envelope recommendation from compare",
+      title: "Recommended setup from compare",
       status:
         recommendedEnvelope.status === "recommended"
           ? "recommended"
           : recommendedEnvelope.status === "review"
             ? "pending_founder"
             : "blocked",
-      owner: "Founder",
+      owner: "Leadership",
       rationale:
         recommendedEnvelope.recommendedRunLabel
-          ? `${recommendedEnvelope.recommendedRunLabel} is the strongest current envelope among the selected runs.`
+          ? `${recommendedEnvelope.recommendedRunLabel} is the strongest current setup among the selected results.`
           : recommendedEnvelope.summary
     }
   ];
@@ -1170,20 +1210,20 @@ export function buildCompareDecisionLog(
   if (pendingFounderLevers.length > 0) {
     log.push({
       key: "founder_assumption_levers",
-      title: "Conditional policy assumptions still need founder choice",
+      title: "Policy assumptions still need a decision",
       status: "pending_founder",
-      owner: "Founder",
-      rationale: `The compared runs still vary on ${pendingFounderLevers.join(", ")}. These must be explicitly chosen as assumptions rather than treated as historical truth.`
+      owner: "Leadership",
+      rationale: `Compared results still vary on ${pendingFounderLevers.join(", ")}. Choose these as assumptions, not observed data.`
     });
   }
 
   if (coverage.partial > 0 || coverage.weak > 0) {
     log.push({
       key: "truth_coverage_gap",
-      title: "Historical truth coverage is not uniformly strong",
+      title: "Imported data coverage is not consistent yet",
       status: "blocked",
       owner: "Data / Ops",
-      rationale: `${coverage.strong} strong, ${coverage.partial} partial, and ${coverage.weak} weak snapshot-truth coverage states are present in the selected runs.`
+      rationale: `${coverage.strong} strong, ${coverage.partial} partial, and ${coverage.weak} weak appear in the selected results.`
     });
   }
 
@@ -1200,9 +1240,9 @@ export function buildCompareDecisionLog(
   if (nonCandidateMilestones.length > 0) {
     log.push({
       key: "milestone_governance_gap",
-      title: "Milestone promotion still needs governance review",
+      title: "Phase promotion still needs review",
       status: "pending_founder",
-      owner: "Founder",
+      owner: "Leadership",
       rationale: nonCandidateMilestones.join("; ")
     });
   }
@@ -1216,21 +1256,33 @@ export function buildCompareTruthAssumptionMatrix(
 ): CompareTruthAssumptionRow[] {
   const snapshotNames = [...new Set(runs.map((run) => run.snapshotName))];
   const coverage = buildCoverageSummary(runs);
+  const modeLabels = [...new Set(runs.map((run) => run.parameters.scenario_mode_label))];
+  const advancedForecastRuns = runs.filter((run) => run.parameters.forecast_mode_caveat);
 
   const baseRows: CompareTruthAssumptionRow[] = [
     {
       key: "snapshot_truth",
-      label: "Approved snapshot truth",
+      label: "Approved snapshot",
       value: snapshotNames.length === 1 ? snapshotNames[0] : `${snapshotNames.length} snapshots selected`,
       classification: "historical_truth",
-      note: "Imported reward distributions and recognized revenue support remain the historical basis underneath compare."
+      note: "Imported reward distribution and recognized revenue are the compare basis."
     },
     {
       key: "truth_coverage",
-      label: "Historical truth coverage",
+      label: "Imported data coverage",
       value: `${coverage.strong} strong · ${coverage.partial} partial · ${coverage.weak} weak`,
       classification: "derived_assessment",
-      note: "Canonical/event-ledger coverage is summarized so founder claims stay calibrated to actual stored truth."
+      note: "Data coverage is summarized so claims stay aligned with stored data."
+    },
+    {
+      key: "scenario_mode",
+      label: "Result mode",
+      value: modeLabels.join(", "),
+      classification: advancedForecastRuns.length > 0 ? "scenario_assumption" : "locked_boundary",
+      note:
+        advancedForecastRuns.length > 0
+          ? "At least one result uses Add Forecast, so growth assumptions need a caveat."
+          : "All results use imported data only."
     }
   ];
 
@@ -1250,16 +1302,22 @@ export function buildCompareTruthAssumptionMatrix(
   parameterRows.push({
     key: "reward_factor_lock",
     label: "Global / pool reward factors",
-    value: "locked to neutral baseline",
+    value: "locked to core formula",
     classification: "locked_boundary",
-    note: "Generic reward multipliers stay locked so named understanding-doc reward semantics are not distorted."
+    note: "Locked so the core reward formula does not change during scenario comparison."
   });
   parameterRows.push({
     key: "cohort_projection_lock",
-    label: "Synthetic cohort projection",
-    value: "disabled in founder-safe mode",
-    classification: "locked_boundary",
-    note: "Synthetic member growth, churn, and reactivation are not treated as faithful historical truth."
+    label: "Growth Forecast",
+    value:
+      advancedForecastRuns.length > 0
+        ? advancedForecastRuns.map((run) => `${run.label}: ${run.parameters.cohort_projection_label}`).join("; ")
+        : "off in Imported Data Only",
+    classification: advancedForecastRuns.length > 0 ? "scenario_assumption" : "locked_boundary",
+    note:
+      advancedForecastRuns.length > 0
+        ? "New-member, churn, and reactivation forecasts are on in selected results."
+        : "New members, churn, and reactivation are not forecast when the result uses imported data only."
   });
 
   return [...baseRows, ...parameterRows];

@@ -67,7 +67,7 @@ export function DecisionLogGovernanceControl({
       setMessage(
         payload?.error === "decision_log_item_not_found"
           ? "Decision item no longer exists."
-          : "Could not update decision governance state."
+          : "Could not update decision review status."
       );
       return;
     }
@@ -100,7 +100,7 @@ export function DecisionLogGovernanceControl({
         <div className="decision-log-editor__form">
           <div className="decision-log-editor__grid">
             <label className="decision-log-editor__field">
-              <span>Governance State</span>
+              <span>Review Status</span>
               <select
                 disabled={isPending}
                 onChange={(event) => setStatus(event.target.value as (typeof governanceStatuses)[number])}
@@ -124,11 +124,11 @@ export function DecisionLogGovernanceControl({
             </label>
           </div>
           <label className="decision-log-editor__field">
-            <span>Resolution Note</span>
+            <span>Decision Note</span>
             <input
               disabled={isPending}
               onChange={(event) => setResolutionNote(event.target.value)}
-              placeholder="Resolution note (optional)"
+              placeholder="Decision note (optional)"
               value={resolutionNote}
             />
           </label>
@@ -150,7 +150,7 @@ export function DecisionLogGovernanceControl({
               onClick={() => startTransition(saveResolution)}
               type="button"
             >
-              {isPending ? "Saving..." : "Save Update"}
+              {isPending ? "Saving..." : "Save"}
             </button>
           </div>
         </div>
@@ -188,8 +188,8 @@ export function RecommendedBaselineControls({
     if (!response.ok) {
       setMessage(
         payload?.error === "recommended_setup_not_found"
-          ? "This run does not have a structured recommended setup yet."
-          : "Could not adopt this run as the current pilot baseline."
+          ? "This result does not have a structured recommended setup yet."
+          : "Could not use this result as the current pilot baseline."
       );
       return;
     }
@@ -221,7 +221,7 @@ export function RecommendedBaselineControls({
           className="decision-baseline-control__input"
           disabled={!canWrite || isPending}
           onChange={(event) => setNote(event.target.value)}
-          placeholder="Adoption note (optional)"
+          placeholder="Baseline note (optional)"
           value={note}
         />
       ) : null}
@@ -233,7 +233,7 @@ export function RecommendedBaselineControls({
             onClick={() => startTransition(clearBaseline)}
             type="button"
           >
-            {isPending ? "Clearing..." : "Clear Baseline"}
+            {isPending ? "Clearing..." : "Clear Pilot Baseline"}
           </button>
         ) : (
           <button
@@ -242,7 +242,7 @@ export function RecommendedBaselineControls({
             onClick={() => startTransition(adoptBaseline)}
             type="button"
           >
-            {isPending ? "Adopting..." : "Adopt as Current Pilot Baseline"}
+            {isPending ? "Saving..." : "Use as Current Pilot Baseline"}
           </button>
         )}
       </div>

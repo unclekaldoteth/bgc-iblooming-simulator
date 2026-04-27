@@ -37,6 +37,11 @@ type ValidateCompatibilitySnapshotFactsOptions = {
   canonicalSnapshotId?: string | null;
 };
 
+type ValidateCanonicalRuleGateBackingOptions = {
+  canonicalSourceSnapshotKey?: string | null;
+  canonicalEntityCount?: number;
+};
+
 type NormalizedSourceSystem = "BGC" | "IBLOOMING" | "OTHER";
 type KnownBgcTier = "PATHFINDER" | "VOYAGER" | "EXPLORER" | "PIONEER" | "SPECIAL";
 type KnownIbTier = "CP" | "EXECUTIVE_CP";
@@ -1896,7 +1901,7 @@ function validateCompatibilityRowMetadata(
 
   if (cashoutBreakdownTotal === null && fact.cashoutUsd > 0) {
     issues.push({
-      severity: "WARNING",
+      severity: "ERROR",
       issueType: "missing_rule_tagged_breakdown",
       message: "extra_json is missing cashout_breakdown_usd while cashout_usd is non-zero.",
       rowRef
@@ -1905,7 +1910,7 @@ function validateCompatibilityRowMetadata(
 
   if (sinkBreakdownTotal === null && fact.sinkSpendUsd > 0) {
     issues.push({
-      severity: "WARNING",
+      severity: "ERROR",
       issueType: "missing_rule_tagged_breakdown",
       message: "extra_json is missing sink_breakdown_usd while sink_spend_usd is non-zero.",
       rowRef
@@ -2495,7 +2500,12 @@ function buildParsedCompatibilityRowFromFact(
   };
   const canonicalOnlyRuleFamilies = detectCanonicalOnlyRuleFamilies(row);
 
-  if (canonicalOnlyRuleFamilies.length > 0 && row.metadata && !("canonical_rule_gate" in row.metadata)) {
+  if (
+    canonicalOnlyRuleFamilies.length > 0 &&
+    canonicalSnapshotId &&
+    row.metadata &&
+    !("canonical_rule_gate" in row.metadata)
+  ) {
     row.metadata.canonical_rule_gate = {
       strict_mode: "understanding_doc_strict",
       validated_via: "canonical_json",
@@ -2505,6 +2515,69 @@ function buildParsedCompatibilityRowFromFact(
   }
 
   return row;
+}
+
+export function validateCanonicalRuleGateBacking(
+  facts: SnapshotMemberMonthFactInput[],
+  options: ValidateCanonicalRuleGateBackingOptions = {}
+) {
+  const issues: SnapshotImportIssueInput[] = [];
+  const canonicalEntityCount = options.canonicalEntityCount ?? 0;
+  const canonicalSourceSnapshotKey = options.canonicalSourceSnapshotKey ?? null;
+
+  for (const [index, fact] of facts.entries()) {
+    const metadata = isRecord(fact.metadataJson) ? fact.metadataJson : null;
+    const rowRef = `row:${index + 1}`;
+
+    if (!metadata) {
+      continue;
+    }
+
+    const gate = getOptionalMetadataRecord(metadata, "canonical_rule_gate", rowRef);
+
+    if (!gate) {
+      continue;
+    }
+
+    const validatedVia = parseMetadataString(gate.validated_via, "canonical_rule_gate.validated_via", rowRef);
+    const requiresCanonicalJson = parseMetadataBoolean(
+      gate.requires_canonical_json,
+      "canonical_rule_gate.requires_canonical_json",
+      rowRef
+    );
+
+    if (validatedVia !== "canonical_json" || !requiresCanonicalJson) {
+      continue;
+    }
+
+    const rowCanonicalSnapshotId =
+      "canonical_snapshot_id" in metadata
+        ? parseMetadataString(metadata.canonical_snapshot_id, "canonical_snapshot_id", rowRef)
+        : null;
+
+    if (canonicalEntityCount <= 0) {
+      issues.push({
+        severity: "ERROR",
+        issueType: "canonical_gate_unbacked",
+        message:
+          "Rows with canonical_rule_gate.validated_via=canonical_json require stored canonical snapshot data; compatibility CSV cannot self-attest canonical-only rule families.",
+        rowRef
+      });
+      continue;
+    }
+
+    if (!canonicalSourceSnapshotKey || !rowCanonicalSnapshotId || rowCanonicalSnapshotId !== canonicalSourceSnapshotKey) {
+      issues.push({
+        severity: "ERROR",
+        issueType: "canonical_gate_snapshot_mismatch",
+        message:
+          "Rows with canonical_rule_gate.validated_via=canonical_json must match the snapshot canonicalSourceSnapshotKey.",
+        rowRef
+      });
+    }
+  }
+
+  return issues;
 }
 
 export function validateCompatibilitySnapshotFacts(

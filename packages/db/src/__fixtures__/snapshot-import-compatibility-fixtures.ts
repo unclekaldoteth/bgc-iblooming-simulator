@@ -49,6 +49,10 @@ export function loadCanonicalSnapshotFixture() {
   return readFileSync(exampleCsvPath("sample-canonical-snapshot.json"), "utf8");
 }
 
+export function loadFullDetailCsvSnapshotFixture() {
+  return readFileSync(exampleCsvPath("sample-source-detail-all-green.csv"), "utf8");
+}
+
 export function buildInvalidFormulaCsvFixture() {
   const lines = loadFixtureLines();
 

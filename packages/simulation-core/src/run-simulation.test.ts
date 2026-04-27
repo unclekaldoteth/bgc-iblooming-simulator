@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { scenarioCohortAssumptionsSchema } from "@bgc-alpha/schemas";
+import { scenarioCohortAssumptionsSchema, sinkAdoptionModelSchema } from "@bgc-alpha/schemas";
 
 import { simulateScenario } from "./index";
 import type { DatasetSimulationInput, SimulationBaselineModel } from "./engine/run-simulation";
@@ -109,6 +109,7 @@ function createInput(
         name: "Test Scenario",
         template: "Baseline",
         parameters: {
+          scenario_mode: "founder_safe",
           k_pc: 1,
           k_sp: 1,
           reward_global_factor: 1,
@@ -122,8 +123,61 @@ function createInput(
           cashout_windows_per_year: 4,
           cashout_window_days: 7,
           cohort_assumptions: scenarioCohortAssumptionsSchema.parse({}),
+          sink_adoption_model: sinkAdoptionModelSchema.parse({}),
           projection_horizon_months: null,
-          milestone_schedule: []
+          milestone_schedule: [],
+          alpha_token_policy: {
+            classification: "internal_credit",
+            phase: "phase_1_internal",
+            transferability: "non_transferable",
+            settlement_unit: "alpha_internal",
+            on_chain_status: "not_on_chain",
+            evidence_standard: "simulation_backed"
+          },
+          forecast_policy: {
+            mode: "snapshot_window",
+            actuals_through_period: null,
+            forecast_start_period: null,
+            forecast_basis: "none",
+            stress_case: "none"
+          },
+          web3_tokenomics: {
+            network_status: "not_applicable_internal",
+            supply_model: "not_applicable_internal",
+            max_supply: null,
+            allocation: {
+              community_pct: null,
+              treasury_pct: null,
+              team_pct: null,
+              investor_pct: null,
+              liquidity_pct: null
+            },
+            vesting: {
+              team_cliff_months: null,
+              team_vesting_months: null,
+              investor_cliff_months: null,
+              investor_vesting_months: null
+            },
+            liquidity: {
+              enabled: false,
+              reserve_pct: null,
+              launch_pool_usd: null
+            },
+            governance: {
+              mode: "founder_admin",
+              voting_token_enabled: false
+            },
+            smart_contract: {
+              chain: null,
+              standard: null,
+              audit_status: "not_started"
+            },
+            legal: {
+              classification: "unreviewed",
+              kyc_required: null,
+              jurisdiction_notes: null
+            }
+          }
         }
       }
     },
@@ -156,8 +210,15 @@ test("treasury metrics follow recognized revenue and faithful reward distributio
 
   assert.equal(result.summary_metrics.alpha_issued_total, 100);
   assert.equal(result.summary_metrics.alpha_spent_total, 40);
+  assert.equal(result.summary_metrics.alpha_actual_spent_total, 40);
+  assert.equal(result.summary_metrics.alpha_modeled_spent_total, 0);
   assert.equal(result.summary_metrics.alpha_cashout_equivalent_total, 35.46);
   assert.equal(result.summary_metrics.alpha_held_total, 24.54);
+  assert.equal(result.summary_metrics.alpha_opening_balance_total, 0);
+  assert.equal(result.summary_metrics.alpha_ending_balance_total, 24.54);
+  assert.equal(result.summary_metrics.alpha_expired_burned_total, 0);
+  assert.equal(result.summary_metrics.forecast_actual_period_count, 1);
+  assert.equal(result.summary_metrics.forecast_projected_period_count, 0);
   assert.equal(result.summary_metrics.company_gross_cash_in_total, 100);
   assert.equal(result.summary_metrics.company_retained_revenue_total, 100);
   assert.equal(result.summary_metrics.company_direct_reward_obligation_total, 20);
@@ -166,11 +227,68 @@ test("treasury metrics follow recognized revenue and faithful reward distributio
   assert.equal(result.summary_metrics.company_net_treasury_delta_total, 64.54);
   assert.equal(result.summary_metrics.payout_inflow_ratio, 0.65);
   assert.equal(result.summary_metrics.sink_utilization_rate, 40);
+  assert.equal(result.summary_metrics.actual_sink_utilization_rate, 40);
+  assert.equal(result.summary_metrics.modeled_sink_utilization_rate, 0);
+  assert.ok(
+    result.time_series_metrics.some(
+      (metric) =>
+        metric.period_key === "2025-01" &&
+        metric.metric_key === "alpha_ending_balance_total" &&
+        metric.metric_value === 24.54
+    )
+  );
 
   const revenueObjective = result.strategic_objectives.find(
     (objective) => objective.objective_key === "revenue"
   );
   assert.equal(revenueObjective?.primary_metrics[0]?.unit, "usd");
+});
+
+test("sink adoption layer separates actual snapshot use from modeled internal-use demand", () => {
+  const input = createInput([
+    {
+      periodKey: "2025-01",
+      memberKey: "AFF-1",
+      sourceSystem: "bgc",
+      pcVolume: 10000,
+      spRewardBasis: 0,
+      globalRewardUsd: 0,
+      poolRewardUsd: 0,
+      cashoutUsd: 0,
+      sinkSpendUsd: 40,
+      activeMember: true,
+      recognizedRevenueUsd: 100,
+      grossCashInUsd: 100,
+      retainedRevenueUsd: 100
+    }
+  ]);
+
+  input.request.scenario.parameters.sink_adoption_model = {
+    sink_adoption_rate_pct: 50,
+    eligible_member_share_pct: 100,
+    avg_sink_ticket_usd: 20,
+    sink_frequency_per_month: 1,
+    alpha_payment_share_pct: 100,
+    sink_growth_rate_pct: 0
+  };
+
+  const result = simulateScenario(input);
+
+  assert.equal(result.summary_metrics.alpha_issued_total, 100);
+  assert.equal(result.summary_metrics.alpha_actual_spent_total, 40);
+  assert.equal(result.summary_metrics.alpha_modeled_spent_total, 10);
+  assert.equal(result.summary_metrics.alpha_spent_total, 50);
+  assert.equal(result.summary_metrics.actual_sink_utilization_rate, 40);
+  assert.equal(result.summary_metrics.modeled_sink_utilization_rate, 10);
+  assert.equal(result.summary_metrics.sink_utilization_rate, 50);
+  assert.ok(
+    result.time_series_metrics.some(
+      (metric) =>
+        metric.period_key === "2025-01" &&
+        metric.metric_key === "alpha_modeled_spent_total" &&
+        metric.metric_value === 10
+    )
+  );
 });
 
 test("cashflow lens separates gross cash, retained revenue, partner payouts, pool funding, and fulfillment", () => {

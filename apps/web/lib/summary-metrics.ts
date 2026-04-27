@@ -2,7 +2,7 @@ import type { SummaryMetrics } from "@bgc-alpha/schemas";
 
 export type SummaryMetricKey = keyof SummaryMetrics;
 export type SummaryMetricGroup = "outcome" | "cashflow" | "signal";
-export type SummaryMetricUnit = "value" | "usd" | "percent" | "ratio" | "months";
+export type SummaryMetricUnit = "value" | "usd" | "percent" | "ratio" | "months" | "count";
 
 export type SummaryMetricDefinition = {
   key: SummaryMetricKey;
@@ -50,6 +50,24 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     unit: "value",
   },
   {
+    key: "alpha_actual_spent_total",
+    label: "Actual ALPHA Used",
+    shortLabel: "Actual Used",
+    description:
+      "ALPHA use that comes directly from uploaded internal-use data.",
+    group: "outcome",
+    unit: "value",
+  },
+  {
+    key: "alpha_modeled_spent_total",
+    label: "Modeled ALPHA Used",
+    shortLabel: "Modeled Used",
+    description:
+      "Extra ALPHA use estimated from internal-use target and adoption assumptions.",
+    group: "outcome",
+    unit: "value",
+  },
+  {
     key: "alpha_held_total",
     label: "Total ALPHA Held",
     shortLabel: "Held",
@@ -68,74 +86,101 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     unit: "value",
   },
   {
-    key: "company_gross_cash_in_total",
-    label: "Gross Cash In",
-    shortLabel: "Gross In",
+    key: "alpha_opening_balance_total",
+    label: "Opening ALPHA Balance",
+    shortLabel: "Opening",
     description:
-      "Gross business cash collected before pass-through partner payouts or internal obligations.",
+      "Cumulative ALPHA balance at the start of the simulated ledger window.",
+    group: "outcome",
+    unit: "value",
+  },
+  {
+    key: "alpha_ending_balance_total",
+    label: "Ending ALPHA Balance",
+    shortLabel: "Ending",
+    description:
+      "Cumulative ALPHA balance after issued, used, cash-out, and burn/expiry flows.",
+    group: "outcome",
+    unit: "value",
+  },
+  {
+    key: "alpha_expired_burned_total",
+    label: "Expired / Burned ALPHA",
+    shortLabel: "Burned",
+    description:
+      "ALPHA removed from circulation by expiry or burn policy. Phase 1 defaults this to zero until a burn rule is explicitly defined.",
+    group: "outcome",
+    unit: "value",
+  },
+  {
+    key: "company_gross_cash_in_total",
+    label: "Cash In",
+    shortLabel: "Cash In",
+    description:
+      "Total business cash collected before partner payouts or internal rewards.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_retained_revenue_total",
-    label: "Retained Revenue",
-    shortLabel: "Revenue",
+    label: "Revenue Kept",
+    shortLabel: "Revenue Kept",
     description:
-      "Revenue support that remains attributable to the company after pass-through splits.",
+      "Revenue the company keeps after partner pass-through splits.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_partner_payout_out_total",
-    label: "Partner Payout Out",
-    shortLabel: "Partner Out",
+    label: "Partner Payout",
+    shortLabel: "Partner Payout",
     description:
-      "Pass-through partner payouts such as the CP creator share on iBLOOMING product sales.",
+      "Cash passed through to partners, such as CP creator share on iBLOOMING sales.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_direct_reward_obligation_total",
-    label: "Direct Reward Obligations",
-    shortLabel: "Direct Obl.",
+    label: "Direct Rewards Owed",
+    shortLabel: "Direct Rewards",
     description:
-      "Direct reward obligations created by snapshot truth, such as RR, GR, LR, CPR, GRR, and iRR.",
+      "Direct rewards owed from uploaded business data.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_pool_funding_obligation_total",
-    label: "Pool Funding Obligations",
-    shortLabel: "Pool Fund",
+    label: "Pool Funding Owed",
+    shortLabel: "Pool Funding",
     description:
-      "Pool funding obligations created by snapshot truth, kept separate from actual cash payouts.",
+      "Pool funding owed from uploaded business data, kept separate from actual cash paid out.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_actual_payout_out_total",
-    label: "Actual Payout Out",
-    shortLabel: "Payout Out",
+    label: "Cash Paid Out",
+    shortLabel: "Paid Out",
     description:
-      "Actual cash-equivalent payouts released under the scenario's cash-out policy.",
+      "Cash-equivalent payouts released by the cash-out policy.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_product_fulfillment_out_total",
-    label: "Product Fulfillment Out",
+    label: "Fulfillment Cost",
     shortLabel: "Fulfillment",
     description:
-      "Physical-product fulfillment value triggered when PC is redeemed on the BGC side.",
+      "Product fulfillment value triggered when PC is redeemed on the BGC side.",
     group: "cashflow",
     unit: "usd",
   },
   {
     key: "company_net_treasury_delta_total",
-    label: "Net Treasury Delta",
-    shortLabel: "Net Delta",
+    label: "Net Cash Change",
+    shortLabel: "Net Cash",
     description:
-      "Retained revenue minus partner payouts, actual member payouts, and product fulfillment out.",
+      "Revenue kept minus partner payouts, cash paid out, and fulfillment cost.",
     group: "cashflow",
     unit: "usd",
   },
@@ -143,7 +188,25 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     key: "sink_utilization_rate",
     label: "Internal Use Rate",
     shortLabel: "Use Rate",
-    description: "Share of issued ALPHA that gets used inside modeled sinks.",
+    description: "Share of issued ALPHA that gets used inside internal-use activities.",
+    group: "signal",
+    unit: "percent",
+    chartMax: 100,
+  },
+  {
+    key: "actual_sink_utilization_rate",
+    label: "Actual Internal Use Rate",
+    shortLabel: "Actual Use",
+    description: "Share of issued ALPHA used by uploaded internal-use spending data.",
+    group: "signal",
+    unit: "percent",
+    chartMax: 100,
+  },
+  {
+    key: "modeled_sink_utilization_rate",
+    label: "Modeled Internal Use Rate",
+    shortLabel: "Modeled Use",
+    description: "Share of issued ALPHA used by forecast internal-use adoption or policy uplift assumptions.",
     group: "signal",
     unit: "percent",
     chartMax: 100,
@@ -153,7 +216,7 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     label: "Treasury Pressure",
     shortLabel: "Pressure",
     description:
-      "Modeled obligations compared with imported recognized revenue support. Above 1.0 means obligations are overtaking recognized revenue support.",
+      "Rewards and payouts compared with revenue support. Above 1.0 means payouts are larger than the revenue support.",
     group: "signal",
     unit: "ratio",
     chartMax: 3,
@@ -163,7 +226,7 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     label: "Reserve Runway",
     shortLabel: "Runway",
     description:
-      "Estimated number of months the reserve can support modeled obligations given the current recognized revenue support profile.",
+      "Estimated months the reserve can support payouts under the current revenue profile.",
     group: "signal",
     unit: "months",
     chartMax: 24,
@@ -177,6 +240,26 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     group: "signal",
     unit: "percent",
     chartMax: 100,
+  },
+  {
+    key: "forecast_actual_period_count",
+    label: "Observed Months",
+    shortLabel: "Observed",
+    description:
+      "Number of months read directly from uploaded data.",
+    group: "signal",
+    unit: "count",
+    chartMax: 24,
+  },
+  {
+    key: "forecast_projected_period_count",
+    label: "Forecast Months",
+    shortLabel: "Forecast",
+    description:
+      "Number of months generated from forecast assumptions instead of uploaded history.",
+    group: "signal",
+    unit: "count",
+    chartMax: 24,
   },
 ];
 

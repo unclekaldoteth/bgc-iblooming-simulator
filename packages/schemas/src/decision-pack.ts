@@ -89,6 +89,21 @@ export const canonicalGapAuditSchema = z.object({
   rows: z.array(canonicalGapAuditRowSchema).default([])
 });
 
+export const tokenFlowEvidenceRowSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  value: z.string().min(1),
+  status: z.enum(["locked", "ready", "assumption", "blocked"]),
+  detail: z.string().min(1)
+});
+
+export const tokenFlowEvidencePackSchema = z.object({
+  readiness: z.enum(["tokenflow_ready", "whitepaper_draft_ready", "web3_gap_open"]),
+  summary: z.string().min(1),
+  rows: z.array(tokenFlowEvidenceRowSchema).default([]),
+  caveats: z.array(z.string()).default([])
+});
+
 export const decisionPackSchema = z.object({
   title: z.string().min(1),
   policy_status: z.enum(["candidate", "risky", "rejected"]),
@@ -100,7 +115,7 @@ export const decisionPackSchema = z.object({
   milestone_evaluations: z.array(milestoneEvaluationSchema).optional().default([]),
   historical_truth_coverage: decisionPackHistoricalTruthCoverageSchema.optional().default({
     status: "weak",
-    summary: "Historical truth coverage was not recorded for this run.",
+    summary: "Imported data coverage was not recorded for this run.",
     rows: []
   }),
   recommended_setup: decisionPackRecommendedSetupSchema.optional().default({
@@ -115,6 +130,12 @@ export const decisionPackSchema = z.object({
     readiness: "weak",
     summary: "Canonical fidelity audit was not recorded for this run.",
     rows: []
+  }),
+  token_flow_evidence: tokenFlowEvidencePackSchema.optional().default({
+    readiness: "web3_gap_open",
+    summary: "Token flow evidence was not recorded for this run.",
+    rows: [],
+    caveats: []
   })
 });
 
@@ -136,3 +157,5 @@ export type DecisionPackTruthAssumptionItem = z.infer<
 export type DecisionLogResolution = z.infer<typeof decisionLogResolutionSchema>;
 export type CanonicalGapAudit = z.infer<typeof canonicalGapAuditSchema>;
 export type CanonicalGapAuditRow = z.infer<typeof canonicalGapAuditRowSchema>;
+export type TokenFlowEvidencePack = z.infer<typeof tokenFlowEvidencePackSchema>;
+export type TokenFlowEvidenceRow = z.infer<typeof tokenFlowEvidenceRowSchema>;

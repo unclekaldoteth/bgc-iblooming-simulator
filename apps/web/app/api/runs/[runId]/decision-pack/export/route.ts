@@ -23,7 +23,8 @@ import {
   getSetupStatusLabel,
   getSegmentKeyLabel,
   getSegmentTypeLabel,
-  getTruthClassificationLabel
+  getTruthClassificationLabel,
+  simplifyResultText
 } from "@/lib/common-language";
 import { summaryMetricDefinitions } from "@/lib/summary-metrics";
 import {
@@ -37,6 +38,7 @@ import {
   readMilestoneEvaluations,
   readRecommendedSetup,
   readStrategicObjectives,
+  readTokenFlowEvidence,
   readTruthAssumptionMatrix
 } from "@/lib/strategic-objectives";
 
@@ -81,6 +83,8 @@ function buildTreasuryRows(run: NonNullable<Awaited<ReturnType<typeof getRunById
     "company_product_fulfillment_out_total",
     "company_net_treasury_delta_total",
     "sink_utilization_rate",
+    "actual_sink_utilization_rate",
+    "modeled_sink_utilization_rate",
     "payout_inflow_ratio",
     "reserve_runway_months",
     "reward_concentration_top10_pct"
@@ -131,6 +135,7 @@ function buildExportReport(run: NonNullable<Awaited<ReturnType<typeof getRunById
   const historicalTruthCoverage = readHistoricalTruthCoverage(packValue);
   const canonicalGapAudit = readCanonicalGapAudit(packValue);
   const recommendedSetup = readRecommendedSetup(packValue);
+  const tokenFlowEvidence = readTokenFlowEvidence(packValue);
   const decisionLog = mergeDecisionLogWithResolutions(
     readDecisionLog(packValue),
     readDecisionLogResolutions(
@@ -161,84 +166,97 @@ function buildExportReport(run: NonNullable<Awaited<ReturnType<typeof getRunById
       severity: getRiskSeverityLabel(flag.severity),
       type: flag.flagType,
       period: flag.periodKey ?? "",
-      message: flag.message
+      message: simplifyResultText(flag.message)
     })),
     distribution: buildDistributionGroups(run),
     decisionPack: {
-      title: decisionPack.title,
+      title: simplifyResultText(decisionPack.title),
       verdict: getPolicyStatusLabel(decisionPack.policy_status),
-      recommendation: decisionPack.recommendation,
-      preferredSettings: decisionPack.preferred_settings,
-      rejectedSettings: decisionPack.rejected_settings,
-      unresolvedQuestions: decisionPack.unresolved_questions,
+      recommendation: simplifyResultText(decisionPack.recommendation),
+      preferredSettings: decisionPack.preferred_settings.map(simplifyResultText),
+      rejectedSettings: decisionPack.rejected_settings.map(simplifyResultText),
+      unresolvedQuestions: decisionPack.unresolved_questions.map(simplifyResultText),
       historicalTruthCoverage: historicalTruthCoverage
         ? {
             status: getHistoricalTruthCoverageLabel(historicalTruthCoverage.status),
-            summary: historicalTruthCoverage.summary,
+            summary: simplifyResultText(historicalTruthCoverage.summary),
             rows: historicalTruthCoverage.rows.map((row) => ({
-              label: row.label,
+              label: simplifyResultText(row.label),
               status: getHistoricalTruthCoverageLabel(row.status),
-              detail: row.detail
+              detail: simplifyResultText(row.detail)
             }))
           }
         : null,
       canonicalGapAudit: canonicalGapAudit
         ? {
             readiness: getHistoricalTruthCoverageLabel(canonicalGapAudit.readiness),
-            summary: canonicalGapAudit.summary,
+            summary: simplifyResultText(canonicalGapAudit.summary),
             rows: canonicalGapAudit.rows.map((row) => ({
-              label: row.label,
+              label: simplifyResultText(row.label),
               status: getHistoricalTruthCoverageLabel(row.status),
-              detail: row.detail
+              detail: simplifyResultText(row.detail)
             }))
+          }
+        : null,
+      tokenFlowEvidence: tokenFlowEvidence
+        ? {
+            readiness: tokenFlowEvidence.readiness,
+            summary: simplifyResultText(tokenFlowEvidence.summary),
+            rows: tokenFlowEvidence.rows.map((row) => ({
+              label: simplifyResultText(row.label),
+              status: row.status,
+              value: simplifyResultText(row.value),
+              detail: simplifyResultText(row.detail)
+            })),
+            caveats: tokenFlowEvidence.caveats.map(simplifyResultText)
           }
         : null,
       recommendedSetup: recommendedSetup
         ? {
-            title: recommendedSetup.title,
-            summary: recommendedSetup.summary,
+            title: simplifyResultText(recommendedSetup.title),
+            summary: simplifyResultText(recommendedSetup.summary),
             items: recommendedSetup.items.map((item) => ({
-              label: item.label,
-              value: item.value,
+              label: simplifyResultText(item.label),
+              value: simplifyResultText(item.value),
               status: getSetupStatusLabel(item.status),
-              rationale: item.rationale
+              rationale: simplifyResultText(item.rationale)
             })),
-            warnings: recommendedSetup.warnings
+            warnings: recommendedSetup.warnings.map(simplifyResultText)
           }
         : null,
       adoptedBaselineSummary:
         run.scenario.adoptedBaselineRunId === run.id
-          ? `Adopted as current pilot baseline${run.scenario.adoptedBaselineAt ? ` at ${run.scenario.adoptedBaselineAt.toLocaleString("en-US")}` : ""}${run.scenario.adoptedBaselineNote ? ` · ${run.scenario.adoptedBaselineNote}` : ""}`
+          ? `Selected as current pilot baseline${run.scenario.adoptedBaselineAt ? ` at ${run.scenario.adoptedBaselineAt.toLocaleString("en-US")}` : ""}${run.scenario.adoptedBaselineNote ? ` · ${simplifyResultText(run.scenario.adoptedBaselineNote)}` : ""}`
           : run.scenario.adoptedBaselineRunId
-            ? `Another run is currently adopted as the pilot baseline for ${run.scenario.name}.`
+            ? `Another result is currently the pilot baseline for ${run.scenario.name}.`
             : null,
       decisionLog: decisionLog.map((entry) => ({
-        title: entry.title,
+        title: simplifyResultText(entry.title),
         status: getDecisionLogStatusLabel(entry.status),
-        owner: entry.owner,
-        rationale: entry.rationale,
+        owner: simplifyResultText(entry.owner),
+        rationale: simplifyResultText(entry.rationale),
         governanceStatus: getDecisionGovernanceStatusLabel(entry.governance_status ?? "draft"),
-        resolutionNote: entry.resolution_note ?? null,
+        resolutionNote: entry.resolution_note ? simplifyResultText(entry.resolution_note) : null,
         reviewedAt: entry.reviewed_at ?? null
       })),
       truthAssumptionMatrix: truthAssumptionMatrix.map((item) => ({
-        label: item.label,
+        label: simplifyResultText(item.label),
         classification: getTruthClassificationLabel(item.classification),
-        value: item.value,
-        note: item.note
+        value: simplifyResultText(item.value),
+        note: simplifyResultText(item.note)
       })),
       strategicObjectives: strategicObjectives.map((objective) => ({
-        title: objective.label,
+        title: simplifyResultText(objective.label),
         status: getPolicyStatusLabel(objective.status),
         evidence: getEvidenceLevelLabel(objective.evidence_level),
         score: objective.score.toFixed(2),
         primaryMetrics: objective.primary_metrics.map(
-          (metric) => `${metric.label}: ${formatStrategicMetricValue(metric.value, metric.unit)}`
+          (metric) => `${simplifyResultText(metric.label)}: ${formatStrategicMetricValue(metric.value, metric.unit)}`
         ),
-        reasons: objective.reasons
+        reasons: objective.reasons.map(simplifyResultText)
       })),
       milestoneCheckpoints: milestoneEvaluations.map((milestone) => ({
-        title: milestone.label,
+        title: simplifyResultText(milestone.label),
         period: `${milestone.start_period_key} to ${milestone.end_period_key}`,
         status: getPolicyStatusLabel(milestone.policy_status),
         pressure: `${milestone.summary_metrics.payout_inflow_ratio.toFixed(2)}x`,
@@ -251,7 +269,7 @@ function buildExportReport(run: NonNullable<Awaited<ReturnType<typeof getRunById
           "company_net_treasury_delta_total",
           milestone.summary_metrics.company_net_treasury_delta_total
         ),
-        reasons: milestone.reasons
+        reasons: milestone.reasons.map(simplifyResultText)
       }))
     }
   } satisfies SimulationResultExport;

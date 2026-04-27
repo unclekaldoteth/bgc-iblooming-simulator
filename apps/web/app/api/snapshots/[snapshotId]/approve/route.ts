@@ -63,6 +63,17 @@ export async function POST(
     );
   }
 
+  if (!snapshot.dataFingerprint) {
+    return NextResponse.json(
+      {
+        error: "snapshot_missing_data_fingerprint"
+      },
+      {
+        status: 409
+      }
+    );
+  }
+
   if (!["VALID", "APPROVED"].includes(snapshot.validationStatus)) {
     return NextResponse.json(
       {

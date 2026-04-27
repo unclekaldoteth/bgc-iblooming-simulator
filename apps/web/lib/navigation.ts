@@ -9,7 +9,7 @@ export const navigationItems = [
   {
     href: "/snapshots",
     label: "Snapshots",
-    description: "Historical business data",
+    description: "Uploaded business data",
     icon: "database",
     step: 1
   },

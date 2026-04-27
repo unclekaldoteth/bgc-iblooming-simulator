@@ -14,8 +14,10 @@ export const datasetSnapshotSchema = z.object({
   name: z.string().min(1),
   sourceSystems: z.array(z.string()).min(1),
   canonicalSourceSnapshotKey: z.string().nullable().optional(),
+  dataFingerprint: z.string().nullable().optional(),
   sourceType: z.enum([
     "compatibility_csv",
+    "canonical_csv",
     "canonical_json",
     "canonical_bundle",
     "hybrid_verified"
@@ -50,6 +52,7 @@ export const createDatasetSnapshotSchema = z.object({
   sourceSystems: z.array(z.string().min(1)).min(1),
   sourceType: z.enum([
     "compatibility_csv",
+    "canonical_csv",
     "canonical_json",
     "canonical_bundle",
     "hybrid_verified"
@@ -71,6 +74,7 @@ export const createDatasetSnapshotSchema = z.object({
 export const snapshotManifestSchema = z.object({
   sourceType: z.enum([
     "compatibility_csv",
+    "canonical_csv",
     "canonical_json",
     "canonical_bundle",
     "hybrid_verified"

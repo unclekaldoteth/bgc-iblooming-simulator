@@ -35,6 +35,7 @@ type SnapshotRecord = {
   dateTo: string;
   fileUri: string;
   recordCount: number | null;
+  dataFingerprint: unknown | null;
   validationStatus: string;
   approvedByUserId: string | null;
   approvedAt: string | null;
@@ -44,7 +45,7 @@ type SnapshotRecord = {
   runRefCount: number;
   archivedAt: string | null;
   manifest: {
-    sourceType: "compatibility_csv" | "canonical_json" | "canonical_bundle" | "hybrid_verified";
+    sourceType: "compatibility_csv" | "canonical_csv" | "canonical_json" | "canonical_bundle" | "hybrid_verified";
     validatedVia: "monthly_facts" | "canonical_events" | "hybrid_validation";
     truthLevel: "strong" | "partial" | "weak";
     founderReadiness: "founder_safe" | "needs_canonical_closure";
@@ -182,6 +183,7 @@ function getProgressSteps(snapshot: SnapshotRecord) {
   const created = true;
   const imported = snapshot.importedFactCount > 0 || snapshot.latestImportRun?.status === "COMPLETED";
   const importing = isActiveImportStatus(snapshot.latestImportRun?.status);
+  const integrity = Boolean(snapshot.dataFingerprint);
   const validated = ["VALID", "APPROVED"].includes(snapshot.validationStatus);
   const validating = snapshot.validationStatus === "VALIDATING";
   const approved = snapshot.validationStatus === "APPROVED";
@@ -189,7 +191,8 @@ function getProgressSteps(snapshot: SnapshotRecord) {
   return [
     { label: "Created", done: created, active: false },
     { label: "Imported", done: imported, active: importing },
-    { label: "Validated", done: validated, active: validating },
+    { label: "Data Check", done: integrity, active: false },
+    { label: "Checked", done: validated, active: validating },
     { label: "Approved", done: approved, active: false },
   ];
 }
@@ -199,11 +202,11 @@ function getSnapshotValidationErrorMessage(errorCode: string | undefined, snapsh
     case "snapshot_import_in_progress":
       return `${snapshotName} is still importing. Wait for the import to finish first.`;
     case "snapshot_archived":
-      return `${snapshotName} is archived. Unarchive it before validating.`;
+      return `${snapshotName} is archived. Unarchive it before checking it.`;
     case "snapshot_has_no_imported_rows":
-      return `Import rows into ${snapshotName} before validating it.`;
+      return `Import rows into ${snapshotName} before checking it.`;
     default:
-      return `Validation failed for ${snapshotName}.`;
+      return `Data check failed for ${snapshotName}.`;
   }
 }
 
@@ -215,8 +218,10 @@ function getSnapshotApprovalErrorMessage(errorCode: string | undefined, snapshot
       return `${snapshotName} is archived. Unarchive it before approving.`;
     case "snapshot_has_no_imported_rows":
       return `Import rows into ${snapshotName} before approving it.`;
+    case "snapshot_missing_data_fingerprint":
+      return `Re-import ${snapshotName} before approving it; P0 data fingerprint is missing.`;
     case "snapshot_not_approvable":
-      return `Validate ${snapshotName} successfully before approving it.`;
+      return `Check ${snapshotName} successfully before approving it.`;
     default:
       return `Approval failed for ${snapshotName}.`;
   }
@@ -228,9 +233,38 @@ function getSnapshotImportErrorMessage(errorCode: string | undefined, snapshotNa
       return `${snapshotName} is already importing.`;
     case "snapshot_archived":
       return `${snapshotName} is archived. Unarchive it before importing.`;
+    case "snapshot_approved_immutable":
+      return `${snapshotName} is already approved with a P0 data fingerprint. Archive or supersede it instead of re-importing.`;
     default:
       return `Import failed for ${snapshotName}.`;
   }
+}
+
+function formatSnapshotNote(note: string) {
+  return note
+    .replaceAll(
+      "Business-rule source of truth remains understanding_doc_fixed.",
+      "Business rules still come from the approved understanding document."
+    )
+    .replaceAll(
+      "This accepted hybrid snapshot keeps source-backed rows plus DATA_AGG monthly override rows that are founder-relevant.",
+      "This approved hybrid data keeps rows backed by source files, plus DATA_AGG monthly override rows used for founder review."
+    )
+    .replaceAll(
+      "Pure params_monthly_topup rows without DATA_AGG backing are quarantined from founder-facing truth.",
+      "Rows without DATA_AGG support are kept out of founder review."
+    )
+    .replaceAll("Normalized from bgc-source-bundle-canonical sheet.", "Prepared from the BGC source bundle sheet.")
+    .replaceAll("data lineage is spreadsheet_source_bundle.", "Data comes from the spreadsheet source bundle.")
+    .replaceAll(
+      "Contains source-backed rows plus aggregate/model-assisted rows",
+      "It includes rows backed by source files plus monthly aggregate rows"
+    )
+    .replaceAll("Do not label as pure canonical_json.", "Do not describe it as a full-detail JSON source.")
+    .replaceAll("canonical_json", "full-detail JSON")
+    .replaceAll("canonical", "full-detail")
+    .replaceAll("founder-facing", "founder review")
+    .replaceAll("truth", "data basis");
 }
 
 function formatCleanupDate(value: string | null | undefined) {
@@ -244,6 +278,13 @@ function formatCleanupDate(value: string | null | undefined) {
   }
 
   return parsed.toISOString().slice(0, 10);
+}
+
+function getDownloadFilename(response: Response, fallback: string) {
+  const contentDisposition = response.headers.get("content-disposition");
+  const filenameMatch = contentDisposition?.match(/filename="([^"]+)"/i);
+
+  return filenameMatch?.[1] ?? fallback;
 }
 
 export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, user }: SnapshotConsoleProps) {
@@ -285,7 +326,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
           summary: "Archived snapshots with no scenario or run dependency.",
           rows: cleanupReport.rawFileCleanupCandidates.map((candidate) => (
             <li key={candidate.id}>
-              <strong>{candidate.name}</strong> · archived {formatCleanupDate(candidate.archivedAt)} · {candidate.scenarioRefs} scenario refs · {candidate.runRefs} run refs
+              <strong>{candidate.name}</strong> · archived {formatCleanupDate(candidate.archivedAt)} · {candidate.scenarioRefs} scenario links · {candidate.runRefs} run links
             </li>
           )),
         },
@@ -293,7 +334,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
           key: "failed-imports",
           title: "Failed Import Logs",
           count: cleanupReport.totals.failedImportCandidates,
-          summary: "Old failed import logs that can be removed without changing truth data.",
+          summary: "Old failed import logs that can be removed without changing approved data.",
           rows: cleanupReport.failedImportCandidates.map((candidate) => (
             <li key={candidate.id}>
               <strong>{candidate.snapshotName}</strong> · failed run logged {formatCleanupDate(candidate.completedAt)}
@@ -307,7 +348,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
           summary: "Later superseded snapshots that still duplicate the same source key.",
           rows: cleanupReport.supersedeCandidates.map((candidate) => (
             <li key={candidate.id}>
-              <strong>{candidate.name}</strong> · source key {candidate.canonicalSourceSnapshotKey ?? "none"} · {candidate.scenarioRefs} scenario refs · {candidate.runRefs} run refs
+              <strong>{candidate.name}</strong> · source ID {candidate.canonicalSourceSnapshotKey ?? "none"} · {candidate.scenarioRefs} scenario links · {candidate.runRefs} run links
             </li>
           )),
         },
@@ -356,7 +397,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        reason: snapshot.archivedAt ? null : "Archived from snapshot registry"
+        reason: snapshot.archivedAt ? null : "Archived from snapshot list"
       })
     });
     const payload = (await response.json().catch(() => null)) as SnapshotArchiveResponse | null;
@@ -374,10 +415,53 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
 
     setMessage(
       snapshot.archivedAt
-        ? `${snapshot.name} returned to the active snapshot registry.`
-        : `${snapshot.name} archived from the default snapshot registry view.`
+        ? `${snapshot.name} returned to the active snapshot list.`
+        : `${snapshot.name} archived from the default snapshot list.`
     );
     router.refresh();
+  }
+
+  async function downloadSnapshotExport(
+    snapshot: SnapshotRecord,
+    exportFormat: "monthly_csv" | "full_detail_csv"
+  ) {
+    setMessage(null);
+
+    const url =
+      exportFormat === "full_detail_csv"
+        ? `/api/snapshots/${snapshot.id}/export?format=full_detail_csv`
+        : `/api/snapshots/${snapshot.id}/export`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+      const fallbackMessage =
+        exportFormat === "full_detail_csv"
+          ? `${snapshot.name} has no full-detail source rows yet. Use Monthly CSV, or re-import a Full Detail CSV source.`
+          : `${snapshot.name} has no monthly rows to export.`;
+
+      setMessage(payload?.message ?? fallbackMessage);
+      return;
+    }
+
+    const blob = await response.blob();
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = getDownloadFilename(
+      response,
+      exportFormat === "full_detail_csv" ? `${snapshot.name}-full-detail.csv` : `${snapshot.name}-monthly.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(objectUrl);
+
+    setMessage(
+      exportFormat === "full_detail_csv"
+        ? `Full-detail CSV export started for ${snapshot.name}.`
+        : `Monthly CSV export started for ${snapshot.name}.`
+    );
   }
 
   return (
@@ -407,7 +491,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
             </button>
           </div>
           <p className="muted" style={{ fontSize: "0.82rem", marginTop: "-0.3rem", marginBottom: "0.5rem" }}>
-            Enter dataset details, then import and validate after creation.
+            Enter data details, then import and check the data after creation.
           </p>
           <form
             className="stack-form"
@@ -417,7 +501,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
               startTransition(async () => {
                 const manualFileUri = formState.fileUri.trim();
                 if (!selectedFile && !manualFileUri) {
-                  setMessage("Upload a canonical JSON/CSV file or enter a file path.");
+                  setMessage("Upload a CSV or JSON file, or enter a file path.");
                   return;
                 }
                 let resolvedFileUri = manualFileUri;
@@ -505,7 +589,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
             <div className="inline-fields">
               <label className="field">
                 <span>Name</span>
-                <input disabled={!canWrite || isPending} onChange={(e) => setFormState((c) => ({ ...c, name: e.target.value }))} placeholder="2025 H1 historical import" required value={formState.name} />
+                <input disabled={!canWrite || isPending} onChange={(e) => setFormState((c) => ({ ...c, name: e.target.value }))} placeholder="2025 H1 business data" required value={formState.name} />
               </label>
               <label className="field">
                 <span>Source systems</span>
@@ -514,28 +598,38 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
             </div>
             <div className="inline-fields">
               <label className="field">
-                <span>Source type</span>
+                <span>File type</span>
                 <select
                   disabled={!canWrite || isPending}
-                  onChange={(e) => setFormState((c) => ({ ...c, sourceType: e.target.value }))}
+                  onChange={(e) =>
+                    setFormState((current) => ({
+                      ...current,
+                      sourceType: e.target.value,
+                      validatedVia:
+                        e.target.value === "canonical_csv" || e.target.value === "canonical_json"
+                          ? "canonical_events"
+                          : current.validatedVia
+                    }))
+                  }
                   value={formState.sourceType}
                 >
-                  <option value="compatibility_csv">Compatibility CSV</option>
-                  <option value="canonical_json">Canonical JSON</option>
-                  <option value="canonical_bundle">Canonical Bundle</option>
-                  <option value="hybrid_verified">Hybrid Verified</option>
+                  <option value="compatibility_csv">Monthly CSV</option>
+                  <option value="canonical_csv">Full Detail CSV</option>
+                  <option value="canonical_json">Full detail JSON</option>
+                  <option value="canonical_bundle">Full detail bundle</option>
+                  <option value="hybrid_verified">Hybrid data</option>
                 </select>
               </label>
               <label className="field">
-                <span>Validated via</span>
+                <span>Check method</span>
                 <select
                   disabled={!canWrite || isPending}
                   onChange={(e) => setFormState((c) => ({ ...c, validatedVia: e.target.value }))}
                   value={formState.validatedVia}
                 >
-                  <option value="monthly_facts">Monthly facts</option>
-                  <option value="canonical_events">Canonical events</option>
-                  <option value="hybrid_validation">Hybrid validation</option>
+                  <option value="monthly_facts">Monthly data</option>
+                  <option value="canonical_events">Event data</option>
+                  <option value="hybrid_validation">Hybrid check</option>
                 </select>
               </label>
             </div>
@@ -570,11 +664,11 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
               </label>
             </div>
             <label className="field">
-              <span>Truth notes</span>
+              <span>Data notes</span>
               <input
                 disabled={!canWrite || isPending}
                 onChange={(e) => setFormState((c) => ({ ...c, truthNotes: e.target.value }))}
-                placeholder="Optional notes about truth strength or import caveats"
+                placeholder="Optional notes about data strength or import caveats"
                 value={formState.truthNotes}
               />
             </label>
@@ -622,7 +716,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
         <div className="empty-state">
           <div className="empty-state-icon">📁</div>
           <h3>No snapshots in this view</h3>
-          <p>Add a snapshot or switch the registry filter.</p>
+          <p>Add a snapshot or switch the filter.</p>
         </div>
       ) : (
         <div className="snapshot-card-list">
@@ -639,6 +733,9 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                     <span className={`badge ${getStatusBadgeClass(snapshot.validationStatus)}`}>
                       {getDataSetStatusLabel(snapshot.validationStatus)}
                     </span>
+                    <span className={`badge ${snapshot.dataFingerprint ? "badge--info" : "badge--rejected"}`}>
+                      {snapshot.dataFingerprint ? "Data Check OK" : "Data Check Missing"}
+                    </span>
                     {snapshot.archivedAt ? <span className="badge badge--neutral">Archived</span> : null}
                   </div>
                 </div>
@@ -650,7 +747,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                   </span>
                   <span>{snapshot.sourceSystems.join(", ")}</span>
                   <span>{snapshot.importedFactCount.toLocaleString()} rows imported</span>
-                  <span>{snapshot.scenarioRefCount} scenario refs · {snapshot.runRefCount} run refs</span>
+                  <span>{snapshot.scenarioRefCount} scenario links · {snapshot.runRefCount} run links</span>
                 </div>
 
                 {snapshot.manifest ? (
@@ -671,7 +768,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                               : "badge--rejected"
                         }`}
                       >
-                        Truth: {getHistoricalTruthCoverageLabel(snapshot.manifest.truthLevel)}
+                        Data Quality: {getHistoricalTruthCoverageLabel(snapshot.manifest.truthLevel)}
                       </span>
                       <span
                         className={`badge ${
@@ -692,7 +789,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                                 : "badge--rejected"
                           }`}
                         >
-                          Canonical: {getCanonicalGapStatusLabel(snapshot.canonicalGapAudit.readiness)}
+                          Source Detail: {getCanonicalGapStatusLabel(snapshot.canonicalGapAudit.readiness)}
                         </span>
                       ) : null}
                     </div>
@@ -701,7 +798,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                     </p>
                     {snapshot.truthNotes ? (
                       <p className="muted" style={{ fontSize: "0.75rem", margin: 0 }}>
-                        Truth notes: {snapshot.truthNotes}
+                        Data notes: {formatSnapshotNote(snapshot.truthNotes)}
                       </p>
                     ) : null}
                     {snapshot.supersededBySnapshot ? (
@@ -714,7 +811,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                         <table className="table">
                           <thead>
                             <tr>
-                              <th>Canonical Layer</th>
+                              <th>Source Detail</th>
                               <th>Status</th>
                               <th>Detail</th>
                             </tr>
@@ -846,7 +943,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
                         setMessage(
                           response.ok
-                            ? `Validated ${snapshot.name}.`
+                            ? `Checked ${snapshot.name}.`
                             : getSnapshotValidationErrorMessage(payload?.error, snapshot.name)
                         );
                         router.refresh();
@@ -854,7 +951,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                     }}
                     type="button"
                   >
-                    Validate
+                    Check Data
                   </button>
                   <button
                     className="ghost-button"
@@ -903,13 +1000,9 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                       className="ghost-button snapshot-export-btn"
                       disabled={isPending}
                       onClick={() => {
-                        const link = document.createElement("a");
-                        link.href = `/api/snapshots/${snapshot.id}/export`;
-                        link.download = "";
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        setMessage(`Exporting data for ${snapshot.name}...`);
+                        startTransition(async () => {
+                          await downloadSnapshotExport(snapshot, "monthly_csv");
+                        });
                       }}
                       type="button"
                     >
@@ -918,19 +1011,15 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                         <polyline points="7 10 12 15 17 10" />
                         <line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
-                      Export Data
+                      Export Monthly CSV
                     </button>
                     <button
                       className="ghost-button snapshot-export-btn"
                       disabled={isPending}
                       onClick={() => {
-                        const link = document.createElement("a");
-                        link.href = `/api/snapshots/${snapshot.id}/export?format=canonical`;
-                        link.download = "";
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
-                        setMessage(`Exporting canonical data for ${snapshot.name}...`);
+                        startTransition(async () => {
+                          await downloadSnapshotExport(snapshot, "full_detail_csv");
+                        });
                       }}
                       type="button"
                     >
@@ -939,7 +1028,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                         <polyline points="7 10 12 15 17 10" />
                         <line x1="12" y1="15" x2="12" y2="3" />
                       </svg>
-                      Export Canonical
+                      Export Full Detail CSV
                     </button>
                   </div>
                 ) : null}
@@ -956,7 +1045,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
               <div>
                 <h3 style={{ marginBottom: "0.2rem" }}>Storage Cleanup Policy</h3>
                 <p className="muted" style={{ fontSize: "0.8rem", margin: 0 }}>
-                  Archive keeps the registry clean. Cleanup stays below the registry because it is maintenance, not the primary business-truth workflow.
+                  Archive keeps the list clean. Cleanup is maintenance; it does not change approved business data.
                 </p>
               </div>
               <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "flex-start" }}>

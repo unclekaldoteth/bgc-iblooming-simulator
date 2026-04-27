@@ -8,13 +8,17 @@ import {
   buildInvalidLegacyKeyCsvFixture,
   buildInvalidPoolCsvFixture,
   loadCanonicalSnapshotFixture,
+  loadFullDetailCsvSnapshotFixture,
   loadInvalidAllErrorTypesCsvFixture,
   loadValidCompatibilityCsvFixture
 } from "./__fixtures__/snapshot-import-compatibility-fixtures";
+import { parseCanonicalCsvSnapshotText } from "./canonical-csv";
 import { buildDerivedSnapshotDataFromCanonical } from "./canonical-derived";
 import { parseCanonicalSnapshotText } from "./canonical-payload";
+import { buildSnapshotDataFingerprint } from "./snapshot-data-fingerprint";
 import {
   parseCompatibilityCsvSnapshotText,
+  validateCanonicalRuleGateBacking,
   validateCompatibilitySnapshotFacts
 } from "./snapshot-import-compatibility";
 
@@ -75,6 +79,72 @@ test("canonical-only rule families require canonical_json gate in understanding_
   assert.ok(errors.some((message) => message.includes("canonical_rule_gate.validated_via must be canonical_json")));
 });
 
+test("canonical_json rule gates require stored canonical backing before import", () => {
+  const result = parseCompatibilityCsvSnapshotText(loadValidCompatibilityCsvFixture(), {
+    mode: "understanding_doc_strict"
+  });
+  const unbackedIssues = validateCanonicalRuleGateBacking(result.facts, {
+    canonicalEntityCount: 0,
+    canonicalSourceSnapshotKey: null
+  });
+  const backedIssues = validateCanonicalRuleGateBacking(result.facts, {
+    canonicalEntityCount: 1,
+    canonicalSourceSnapshotKey: "sample-canonical-faithful-24m"
+  });
+
+  assert.ok(unbackedIssues.some((issue) => issue.issueType === "canonical_gate_unbacked"));
+  assert.equal(backedIssues.filter((issue) => issue.severity === "ERROR").length, 0);
+});
+
+test("snapshot data fingerprint is deterministic and import-run scoped", () => {
+  const fact = {
+    periodKey: "2025-01",
+    memberKey: "AFF-1",
+    sourceSystem: "bgc",
+    memberTier: "PATHFINDER",
+    groupKey: "FOUNDERS",
+    pcVolume: 10000,
+    spRewardBasis: 70,
+    globalRewardUsd: 0,
+    poolRewardUsd: 0,
+    cashoutUsd: 0,
+    sinkSpendUsd: 0,
+    activeMember: true,
+    metadataJson: {
+      recognized_revenue_basis: {
+        entry_fee_usd: 100
+      }
+    }
+  };
+  const first = buildSnapshotDataFingerprint({
+    importRunId: "import-1",
+    canonicalSourceSnapshotKey: "canonical-1",
+    facts: [fact]
+  });
+  const reorderedMetadata = buildSnapshotDataFingerprint({
+    importRunId: "import-1",
+    canonicalSourceSnapshotKey: "canonical-1",
+    facts: [
+      {
+        ...fact,
+        metadataJson: {
+          recognized_revenue_basis: {
+            entry_fee_usd: 100
+          }
+        }
+      }
+    ]
+  });
+  const nextImport = buildSnapshotDataFingerprint({
+    importRunId: "import-2",
+    canonicalSourceSnapshotKey: "canonical-1",
+    facts: [fact]
+  });
+
+  assert.equal(first, reorderedMetadata);
+  assert.notEqual(first, nextImport);
+});
+
 test("combined invalid demo fixture surfaces formula, history, pool, and canonical-gate errors together", () => {
   const errors = errorMessages(loadInvalidAllErrorTypesCsvFixture());
 
@@ -101,6 +171,30 @@ test("canonical sample derives facts that also pass understanding_doc_strict val
   });
 
   assert.equal(result.rowCountRaw, derived.memberMonthFacts.length);
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+});
+
+test("full detail CSV sample derives facts that pass understanding_doc_strict validation", () => {
+  const payload = parseCanonicalCsvSnapshotText(loadFullDetailCsvSnapshotFixture());
+  const derived = buildDerivedSnapshotDataFromCanonical(payload, {
+    snapshotDateFrom: new Date("2024-04-01T00:00:00.000Z"),
+    snapshotDateTo: new Date("2026-01-31T23:59:59.999Z")
+  });
+  const result = validateCompatibilitySnapshotFacts(derived.memberMonthFacts, {
+    mode: "understanding_doc_strict",
+    poolPeriodFacts: derived.poolPeriodFacts,
+    canonicalSnapshotId: payload.snapshot_id
+  });
+
+  assert.equal(payload.members.length, 1);
+  assert.equal(payload.member_aliases.length, 1);
+  assert.equal(payload.business_events.length, 6);
+  assert.equal(payload.reward_obligations.length, 1);
+  assert.equal(payload.pool_entries.length, 2);
+  assert.equal(payload.cashout_events.length, 1);
+  assert.equal(payload.qualification_windows.length, 1);
+  assert.equal(payload.qualification_status_history.length, 1);
+  assert.equal(derived.memberMonthFacts.length, 13);
   assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
 });
 

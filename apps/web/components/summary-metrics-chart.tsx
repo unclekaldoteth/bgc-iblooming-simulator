@@ -174,7 +174,7 @@ function getMeterWidth(value: number, maximum: number) {
 function getSignalStatus(key: SummaryMetricKey, value: number): "safe" | "warning" | "danger" {
   if (key === "payout_inflow_ratio") return value > 1.0 ? "danger" : value > 0.8 ? "warning" : "safe";
   if (key === "reserve_runway_months") return value < 6 ? "danger" : value < 12 ? "warning" : "safe";
-  if (key === "sink_utilization_rate") return value < 20 ? "danger" : value < 30 ? "warning" : "safe";
+  if (key.endsWith("sink_utilization_rate")) return value < 20 ? "danger" : value < 30 ? "warning" : "safe";
   if (key === "reward_concentration_top10_pct") return value > 60 ? "danger" : value > 45 ? "warning" : "safe";
   return "safe";
 }

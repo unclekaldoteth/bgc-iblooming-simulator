@@ -43,16 +43,16 @@ export default async function SnapshotsPage() {
   return (
     <>
       <PageHeader
-        step={{ current: 1, total: 4, label: "Historical Data" }}
+        step={{ current: 1, total: 4, label: "Source Data" }}
         title="Snapshots"
-        description="Upload historical business data, validate it, and approve datasets for simulation."
+        description="Upload past business data, check it, and approve it for simulations."
       />
 
       {!databaseConfigured ? (
         <div className="card" style={{ marginBottom: "1rem" }}>
           <h3>Database setup required</h3>
           <p className="muted">
-            Configure DATABASE_URL before using snapshot registration.
+            Set DATABASE_URL before adding snapshots.
           </p>
         </div>
       ) : null}

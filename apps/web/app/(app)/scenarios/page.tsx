@@ -84,6 +84,7 @@ export default async function ScenariosPage() {
             ? {
                 id: scenario.snapshotDefault.id,
                 name: scenario.snapshotDefault.name,
+                hasDataFingerprint: Boolean(scenario.snapshotDefault.dataFingerprint),
                 validationStatus: scenario.snapshotDefault.validationStatus,
                 importedFactCount: scenario.snapshotDefault._count.memberMonthFacts,
                 archivedAt: scenario.snapshotDefault.archivedAt?.toISOString() ?? null
@@ -104,6 +105,7 @@ export default async function ScenariosPage() {
         snapshots={snapshots.map((snapshot) => ({
           id: snapshot.id,
           name: snapshot.name,
+          hasDataFingerprint: Boolean(snapshot.dataFingerprint),
           validationStatus: snapshot.validationStatus,
           importedFactCount: snapshot._count.memberMonthFacts,
           archivedAt: snapshot.archivedAt?.toISOString() ?? null

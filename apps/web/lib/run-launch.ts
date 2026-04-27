@@ -143,10 +143,22 @@ export async function launchSimulationRun({
       );
     }
 
+    if (!snapshot.dataFingerprint) {
+      return NextResponse.json(
+        {
+          error: "snapshot_missing_data_fingerprint"
+        },
+        {
+          status: 409
+        }
+      );
+    }
+
     const seedHash = createHash("sha256")
       .update(
         JSON.stringify({
           snapshotId: snapshot.id,
+          snapshotDataFingerprint: snapshot.dataFingerprint,
           baselineModelVersionId: scenario.modelVersionId,
           scenarioId: scenario.id,
           parameters: scenarioParameters

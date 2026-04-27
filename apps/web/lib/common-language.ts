@@ -22,30 +22,42 @@ const summaryMetricKeys = new Set(summaryMetricDefinitions.map((definition) => d
 const fiatMetricKeys = new Set<string>();
 
 const segmentTypeLabels: Record<string, string> = {
-  alpha_behavior: "ALPHA Behavior",
-  member_tier: "ALPHA Issued by Member Tier",
-  milestone: "Scenario Phase Totals",
-  source_system: "Source System"
+  alpha_behavior: "ALPHA Flow",
+  member_tier: "ALPHA Issued by Member Group",
+  milestone: "Phase Totals",
+  source_system: "Source"
 };
 
 const segmentKeyLabels: Record<string, string> = {
+  actual_spend: "Actual Used",
   bgc: "BGC",
+  burn_expire: "Expired / Burned",
   cashout: "Cash-Out",
+  ending_balance: "Ending Balance",
   hold: "Held",
   iblooming: "iBLOOMING",
+  modeled_spend: "Modeled Used",
   unknown: "Unclassified",
   spend: "Used"
 };
 
 const metricLabels: Record<string, string> = {
+  actual_sink_utilization_rate: "Actual Internal Use",
+  alpha_actual_spent_total: "Actual ALPHA Used",
   alpha_cashout_equivalent_total: "Cash-Out Equivalent",
+  alpha_ending_balance_total: "Ending ALPHA Balance",
+  alpha_expired_burned_total: "Expired / Burned ALPHA",
   alpha_issued_total: "ALPHA Issued",
-  alpha_spent_total: "ALPHA Spent",
+  alpha_modeled_spent_total: "Modeled ALPHA Used",
+  alpha_opening_balance_total: "Opening ALPHA Balance",
+  alpha_spent_total: "ALPHA Used",
   alpha_total: "ALPHA Total",
-  payout_inflow_ratio: "Payout / Inflow",
+  forecast_period_is_projected: "Projected Period",
+  modeled_sink_utilization_rate: "Modeled Internal Use",
+  payout_inflow_ratio: "Treasury Pressure",
   reward_share_pct: "Issued Share",
   reserve_runway_months: "Reserve Runway",
-  sink_utilization_rate: "Sink Utilization",
+  sink_utilization_rate: "Internal Use",
   usd_equivalent_total: "ALPHA Cash-Out"
 };
 
@@ -70,7 +82,7 @@ const evidenceLevelLabels: Record<string, string> = {
 
 const historicalTruthCoverageLabels: Record<string, string> = {
   strong: "Strong",
-  partial: "Partial",
+  partial: "Some Gaps",
   weak: "Weak",
   available: "Available",
   missing: "Missing"
@@ -83,9 +95,9 @@ const setupStatusLabels: Record<string, string> = {
 };
 
 const decisionLogStatusLabels: Record<string, string> = {
-  fixed_truth: "Fixed Truth",
+  fixed_truth: "Imported Data",
   recommended: "Recommended",
-  pending_founder: "Pending Founder",
+  pending_founder: "Decision Needed",
   blocked: "Blocked"
 };
 
@@ -98,34 +110,40 @@ const decisionGovernanceStatusLabels: Record<string, string> = {
 };
 
 const truthClassificationLabels: Record<string, string> = {
-  historical_truth: "Historical Truth",
-  scenario_lever: "Scenario Lever",
-  scenario_assumption: "Scenario Assumption",
-  locked_boundary: "Locked Boundary",
-  derived_assessment: "Derived Assessment"
+  historical_truth: "Imported Data",
+  scenario_lever: "Editable",
+  scenario_assumption: "Assumption",
+  locked_boundary: "Locked",
+  derived_assessment: "Calculated"
 };
 
 const snapshotSourceTypeLabels: Record<string, string> = {
-  compatibility_csv: "Compatibility CSV",
-  canonical_json: "Canonical JSON",
-  canonical_bundle: "Canonical Bundle",
-  hybrid_verified: "Hybrid Verified"
+  compatibility_csv: "Monthly CSV",
+  canonical_csv: "Full Detail CSV",
+  canonical_json: "Full Detail JSON",
+  canonical_bundle: "Full Detail Bundle",
+  hybrid_verified: "Hybrid Data"
 };
 
 const snapshotValidationBasisLabels: Record<string, string> = {
-  monthly_facts: "Monthly Facts",
-  canonical_events: "Canonical Events",
-  hybrid_validation: "Hybrid Validation"
+  monthly_facts: "Monthly Data",
+  canonical_events: "Event Data",
+  hybrid_validation: "Hybrid Check"
 };
 
 const snapshotFounderReadinessLabels: Record<string, string> = {
-  founder_safe: "Founder-Safe",
-  needs_canonical_closure: "Needs Canonical Closure"
+  founder_safe: "Ready to Use",
+  needs_canonical_closure: "Needs More Data"
+};
+
+const scenarioModeLabels: Record<string, string> = {
+  founder_safe: "Imported Data Only",
+  advanced_forecast: "Add Forecast"
 };
 
 const canonicalGapStatusLabels: Record<string, string> = {
-  covered: "Covered",
-  partial: "Partial",
+  covered: "Available",
+  partial: "Some Gaps",
   missing: "Missing",
   strong: "Strong",
   weak: "Weak"
@@ -136,7 +154,7 @@ const dataSetStatusLabels: Record<string, string> = {
   ARCHIVED: "Archived",
   DRAFT: "Draft",
   INVALID: "Needs Fixes",
-  VALID: "Ready for Approval",
+  VALID: "Ready to Approve",
   VALIDATING: "Checking"
 };
 
@@ -274,6 +292,18 @@ export function getSnapshotFounderReadinessLabel(readiness: string) {
   return snapshotFounderReadinessLabels[readiness] ?? toTitleCase(readiness);
 }
 
+export function getScenarioModeLabel(mode: string | null | undefined) {
+  return scenarioModeLabels[mode ?? "founder_safe"] ?? toTitleCase(mode ?? "founder_safe");
+}
+
+export function getScenarioModeCaveat(mode: string | null | undefined) {
+  if (mode !== "advanced_forecast") {
+    return null;
+  }
+
+  return "Add Forecast uses growth assumptions. Treat the result as an estimate, not observed data.";
+}
+
 export function getCanonicalGapStatusLabel(status: string) {
   return canonicalGapStatusLabels[status] ?? toTitleCase(status);
 }
@@ -292,4 +322,115 @@ export function getRiskSeverityLabel(level: string) {
 
 export function getRunReference(runId: string) {
   return `Ref ${runId.slice(-6).toUpperCase()}`;
+}
+
+export function simplifyResultText(value: string | null | undefined) {
+  if (!value) {
+    return "";
+  }
+
+  return value
+    .replace(/founder-facing/gi, "team-facing")
+    .replace(/founder material/gi, "team material")
+    .replace(/founder\/legal lock/gi, "team/legal decision")
+    .replace(/founder review/gi, "team review")
+    .replace(/\bFounder \/ Strategy\b/g, "Business Team / Strategy")
+    .replace(/\bFounder\b/g, "Business Team")
+    .replace(/\bfounder\b/g, "team")
+    .replace(/canonical\/event-native closure/gi, "stronger source details")
+    .replace(/canonical fidelity audit/gi, "source detail check")
+    .replace(/canonical fidelity/gi, "source detail")
+    .replace(/\bcanonical\b/gi, "source detail")
+    .replace(/cashflow lens/gi, "money view")
+    .replace(/\bcashflow\b/gi, "money")
+    .replace(/recognized revenue support/gi, "uploaded revenue data")
+    .replace(/snapshot reward distributions/gi, "uploaded reward data")
+    .replace(
+      /Phase 1 ALPHA ALPHA flow mechanics are evidenced as an internal non-transferable policy-credit layer\./gi,
+      "Phase 1 ALPHA is supported as an internal, non-transferable credit."
+    )
+    .replace(/ALPHA ALPHA flow/gi, "ALPHA flow")
+    .replace(/policy-credit layer/gi, "credit")
+    .replace(/\bevidenced\b/gi, "supported")
+    .replace(
+      /Defines the language boundary for ALPHA before ALPHA flow or Whitepaper claims are written\./gi,
+      "Defines what ALPHA is before ALPHA flow or whitepaper claims are written."
+    )
+    .replace(
+      /Observed snapshot periods and forward-looking periods are separated in the result evidence\./gi,
+      "Uploaded data months and forecast months are separated in this result."
+    )
+    .replace(
+      /Whitepaper text must cite snapshot truth, scenario parameters, result metrics, flags, and caveats from this pack\./gi,
+      "Whitepaper should cite uploaded data, scenario settings, result metrics, warnings, and caveats."
+    )
+    .replace(/Historical truth coverage is not fully strong/gi, "Uploaded data is not complete enough")
+    .replace(/source detail is not fully closed/gi, "Source detail is not complete")
+    .replace(/fairness gate/gi, "fairness threshold")
+    .replace(/public public token/gi, "public token")
+    .replace(/actual sink_spend_usd/gi, "uploaded internal-use data")
+    .replace(/sink_spend_usd/gi, "uploaded internal-use data")
+    .replace(/modeled sink adoption/gi, "modeled internal-use adoption")
+    .replace(/forecast sink adoption/gi, "forecast internal-use adoption")
+    .replace(/modeled sink demand/gi, "modeled internal-use demand")
+    .replace(/sink adoption/gi, "internal-use adoption")
+    .replace(/sink target/gi, "internal-use target")
+    .replace(/sink model/gi, "internal-use model")
+    .replace(/P1 Token Flow Spec Lock/g, "ALPHA Policy")
+    .replace(/P2 Token Flow Ledger/g, "ALPHA Ledger")
+    .replace(/P3 Actual vs Forecast Sink/g, "Actual vs Modeled Internal Use")
+    .replace(/P3 Forecast Layer/g, "Forecast Settings")
+    .replace(/P4 Supply Model/g, "Supply Model")
+    .replace(/P4 Allocation/g, "Allocation")
+    .replace(/P4 Liquidity \/ Governance \/ Legal/g, "Liquidity / Decision Rules / Legal")
+    .replace(/P4 Web3 Tokenomics Extension/g, "Web3 Assumptions")
+    .replace(/P5 Whitepaper Evidence Pack/g, "Whitepaper Evidence")
+    .replace(/Token Flow/g, "ALPHA Flow")
+    .replace(/actual periods/gi, "observed months")
+    .replace(/projected periods/gi, "forecast months")
+    .replace(/internal_credit/g, "internal credit")
+    .replace(/non_transferable/g, "non transferable")
+    .replace(/not_on_chain/g, "not on chain")
+    .replace(/alpha_internal/g, "internal ALPHA")
+    .replace(/not_applicable_internal/g, "not applicable for internal ALPHA")
+    .replace(/snapshot_window/g, "uploaded data window")
+    .replace(/founder_admin/g, "team admin")
+    .replace(/not_started/g, "not started")
+    .replace(/policy-token/gi, "ALPHA")
+    .replace(/token-flow/gi, "ALPHA flow")
+    .replace(/Tokenflow/g, "ALPHA flow")
+    .replace(/ALPHA ALPHA flow/gi, "ALPHA flow")
+    .replace(
+      /Phase 1 ALPHA flow mechanics are supported as an internal non-transferable credit\./gi,
+      "Phase 1 ALPHA is supported as an internal, non-transferable credit."
+    )
+    .replace(
+      /Defines the language boundary for ALPHA before ALPHA flow or Whitepaper claims are written\./gi,
+      "Defines what ALPHA is before ALPHA flow or whitepaper claims are written."
+    )
+    .replace(
+      /Observed snapshot periods and forward-looking periods are separated[^.]*\./gi,
+      "Uploaded data months and forecast months are separated in this result."
+    )
+    .replace(/result output includes/gi, "Result output includes")
+    .replace(/by period/gi, "by month")
+    .replace(/uploaded internal-use data is preserved separately from forecast adoption assumptions/gi, "Uploaded internal-use data stays separate from forecast adoption assumptions")
+    .replace(/explicit liquidity posture, governance control,/gi, "clear liquidity, decision rules,")
+    .replace(/governance control/gi, "decision rules")
+    .replace(/weak truth/gi, "weak data")
+    .replace(/tokenomics wording/gi, "public token wording")
+    .replace(/tokenomics/gi, "token plan")
+    .replace(
+      /Reward concentration is above the fairness threshold; public public token wording should not claim broad distribution yet\./gi,
+      "Reward concentration is high, so public token wording should not claim broad distribution yet."
+    )
+    .replace(/public public token wording/gi, "public token wording")
+    .replace(/net treasury delta/gi, "net cash change")
+    .replace(/\bMilestone\b/g, "Phase")
+    .replace(/\bmilestone\b/g, "phase")
+    .replace(/pilot policy envelope/gi, "recommended setup")
+    .replace(/pilot envelope/gi, "recommended setup")
+    .replace(/recommended pilot envelope/gi, "recommended setup")
+    .replace(/\bRun\b/g, "Result")
+    .replace(/\brun\b/g, "result");
 }

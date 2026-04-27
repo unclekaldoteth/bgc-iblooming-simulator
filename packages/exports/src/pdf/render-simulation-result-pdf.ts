@@ -340,7 +340,7 @@ function drawHeader(layout: PdfLayout, report: SimulationResultExport) {
     lineHeight: 25
   });
   layout.drawParagraph(
-    "Full export of Summary, Distribution, Treasury, and Decision Pack for this simulation run.",
+    "Full export of Summary, Distribution, Treasury, and Decision Pack for this simulation result.",
     layout.marginX + 26,
     yTop - 78,
     layout.contentWidth - 52,
@@ -513,7 +513,7 @@ function drawFlagsTable(layout: PdfLayout, flags: SimulationResultExportFlag[]) 
       fill: COLORS.panel,
       stroke: COLORS.border
     });
-    layout.drawTextLine("No risk flags for this run.", x + 12, layout.cursorY - 24, {
+    layout.drawTextLine("No warnings for this result.", x + 12, layout.cursorY - 24, {
       size: 9.5,
       color: COLORS.muted
     });
@@ -804,15 +804,15 @@ function drawHistoricalTruthCoverageTable(layout: PdfLayout, report: SimulationR
   const coverage = report.decisionPack.historicalTruthCoverage;
   drawSimpleTable(
     layout,
-    ["Coverage Layer", "Status", "Detail"],
+    ["Data Area", "Status", "Detail"],
     [150, 86, layout.contentWidth - 236],
     coverage
       ? [
-          ["Overall Coverage", coverage.status, coverage.summary],
+          ["Overall", coverage.status, coverage.summary],
           ...coverage.rows.map((row) => [row.label, row.status, row.detail])
         ]
       : [],
-    "No historical truth coverage summary."
+    "No imported data coverage summary."
   );
 }
 
@@ -820,15 +820,15 @@ function drawCanonicalGapAuditTable(layout: PdfLayout, report: SimulationResultE
   const audit = report.decisionPack.canonicalGapAudit;
   drawSimpleTable(
     layout,
-    ["Rule Family", "Status", "Detail"],
+    ["Source Area", "Status", "Detail"],
     [150, 86, layout.contentWidth - 236],
     audit
       ? [
-          ["Overall Readiness", audit.readiness, audit.summary],
+          ["Overall", audit.readiness, audit.summary],
           ...audit.rows.map((row) => [row.label, row.status, row.detail])
         ]
       : [],
-    "No canonical fidelity audit."
+    "No source detail check."
   );
 }
 
@@ -836,7 +836,7 @@ function drawRecommendedSetupTable(layout: PdfLayout, report: SimulationResultEx
   const setup = report.decisionPack.recommendedSetup;
   drawSimpleTable(
     layout,
-    ["Setup Item", "Value", "Status", "Rationale"],
+    ["Setup Item", "Value", "Status", "Why"],
     [132, 104, 82, layout.contentWidth - 318],
     setup
       ? [
@@ -855,7 +855,7 @@ function drawRecommendedSetupTable(layout: PdfLayout, report: SimulationResultEx
 function drawDecisionLogTable(layout: PdfLayout, report: SimulationResultExport) {
   drawSimpleTable(
     layout,
-    ["Decision Item", "Generated", "Governance", "Owner", "Rationale / Resolution"],
+    ["Decision Item", "Suggested", "Review", "Owner", "Reason / Decision Note"],
     [126, 72, 74, 80, layout.contentWidth - 352],
     report.decisionPack.decisionLog.map((entry) => [
       entry.title,
@@ -879,7 +879,7 @@ function drawTruthAssumptionTable(layout: PdfLayout, report: SimulationResultExp
       item.value,
       item.note
     ]),
-    "No truth vs assumption matrix."
+    "No data vs assumptions matrix."
   );
 }
 
@@ -890,7 +890,7 @@ function drawObjectiveCards(layout: PdfLayout, objectives: SimulationResultExpor
       fill: COLORS.panel,
       stroke: COLORS.border
     });
-    layout.drawTextLine("No strategic goals.", layout.marginX + 14, layout.cursorY - 24, {
+    layout.drawTextLine("No goal details.", layout.marginX + 14, layout.cursorY - 24, {
       size: 9.5,
       color: COLORS.muted
     });
@@ -938,7 +938,7 @@ function drawObjectiveCards(layout: PdfLayout, objectives: SimulationResultExpor
     });
 
     let bodyY = yTop - 62;
-    layout.drawTextLine("Primary Metrics", layout.marginX + padding, bodyY, {
+    layout.drawTextLine("Main Metrics", layout.marginX + padding, bodyY, {
       font: "F2",
       size: 9,
       color: COLORS.heading
@@ -978,7 +978,7 @@ function drawObjectiveCards(layout: PdfLayout, objectives: SimulationResultExpor
 }
 
 function drawMilestoneTable(layout: PdfLayout, milestones: SimulationResultExportMilestone[]) {
-  const headers = ["Milestone", "Status", "Pressure", "Runway", "Top 10%", "Net Delta", "Reasons"];
+  const headers = ["Phase", "Status", "Pressure", "Runway", "Top 10%", "Net Cash", "Why"];
   const widths = [112, 70, 58, 70, 58, 82, layout.contentWidth - 450];
   const x = layout.marginX;
   const padding = 7;
@@ -1010,7 +1010,7 @@ function drawMilestoneTable(layout: PdfLayout, milestones: SimulationResultExpor
       fill: COLORS.panel,
       stroke: COLORS.border
     });
-    layout.drawTextLine("No milestone checkpoints.", x + 12, layout.cursorY - 23, {
+    layout.drawTextLine("No phase checkpoints.", x + 12, layout.cursorY - 23, {
       size: 9,
       color: COLORS.muted
     });
@@ -1077,7 +1077,7 @@ function drawQuestionsCard(layout: PdfLayout, questions: string[]) {
     fill: COLORS.panel,
     stroke: COLORS.border
   });
-  layout.drawTextLine("Unresolved Questions", layout.marginX + padding, yTop - 22, {
+  layout.drawTextLine("Open Questions", layout.marginX + padding, yTop - 22, {
     font: "F2",
     size: 12,
     color: COLORS.heading
@@ -1103,16 +1103,16 @@ export function renderSimulationResultStyledPdf(report: SimulationResultExport) 
   drawHeader(layout, report);
   drawContextGrid(layout, report);
 
-  drawSectionTitle(layout, "Summary", "Top-line outcome metrics for this simulation run.");
+  drawSectionTitle(layout, "Summary", "Main outcome metrics for this simulation result.");
   drawMetricCards(layout, report.summary, 2);
 
-  drawSectionTitle(layout, "Treasury", "Treasury health, pressure, and reserve durability metrics.");
+  drawSectionTitle(layout, "Treasury", "Treasury safety, pressure, and reserve runway metrics.");
   drawMetricCards(layout, report.treasury, 2);
 
-  drawSectionTitle(layout, "Risk Flags", "Warnings and issues detected during the run.");
+  drawSectionTitle(layout, "Warnings", "Warnings and issues detected during the result.");
   drawFlagsTable(layout, report.flags);
 
-  drawSectionTitle(layout, "Distribution", "Segment breakdowns shown in the simulation result.");
+  drawSectionTitle(layout, "Distribution", "Breakdowns shown in the simulation result.");
   if (report.distribution.length === 0) {
     layout.ensureSpace(42);
     layout.drawRect(layout.marginX, layout.cursorY, layout.contentWidth, 38, {
@@ -1130,35 +1130,35 @@ export function renderSimulationResultStyledPdf(report: SimulationResultExport) 
     }
   }
 
-  drawSectionTitle(layout, "Decision Pack", "Verdict, scenario evidence, blockers, goals, and milestone checkpoints.");
+  drawSectionTitle(layout, "Decision Pack", "Decision, settings used, blockers, goals, and phase checkpoints.");
   drawDecisionHero(layout, report);
   drawListCards(
     layout,
-    "Evaluated Scenario Basis",
+    "Settings Used",
     report.decisionPack.preferredSettings,
-    "Blockers / Rejection Reasons",
+    "Blockers",
     report.decisionPack.rejectedSettings
   );
 
-  drawSectionTitle(layout, "Historical Truth Coverage", "Canonical and derived truth coverage behind this run.");
+  drawSectionTitle(layout, "Data Completeness", "Shows how much uploaded data supports this result.");
   drawHistoricalTruthCoverageTable(layout, report);
 
-  drawSectionTitle(layout, "Canonical Fidelity Audit", "Rule-family audit for where stronger event-native closure is still needed.");
+  drawSectionTitle(layout, "Source Detail Check", "Shows where stronger source details are still needed.");
   drawCanonicalGapAuditTable(layout, report);
 
-  drawSectionTitle(layout, "Recommended Pilot Envelope", "Structured setup recommendation for this run.");
+  drawSectionTitle(layout, "Recommended Setup", "Structured setup recommendation for this result.");
   drawRecommendedSetupTable(layout, report);
 
-  drawSectionTitle(layout, "Decision Log", "What is fixed by truth, recommended by evidence, or still pending.");
+  drawSectionTitle(layout, "Decision Notes", "What is fixed by data, recommended by evidence, or still pending.");
   drawDecisionLogTable(layout, report);
 
-  drawSectionTitle(layout, "Truth vs Assumption Matrix", "Explicit separation between historical truth, scenario levers, assumptions, and locked boundaries.");
+  drawSectionTitle(layout, "Data vs Assumptions", "Shows uploaded data, editable values, assumptions, and locked limits.");
   drawTruthAssumptionTable(layout, report);
 
-  drawSectionTitle(layout, "Strategic Goals");
+  drawSectionTitle(layout, "Goal Details");
   drawObjectiveCards(layout, report.decisionPack.strategicObjectives);
 
-  drawSectionTitle(layout, "Milestone Checkpoints");
+  drawSectionTitle(layout, "Phase Checkpoints");
   drawMilestoneTable(layout, report.decisionPack.milestoneCheckpoints);
 
   drawQuestionsCard(layout, report.decisionPack.unresolvedQuestions);

@@ -10,7 +10,8 @@ import {
   formatCommonMetricValue,
   getCommonMetricLabel,
   getRiskSeverityLabel,
-  getRunReference
+  getRunReference,
+  simplifyResultText
 } from "@/lib/common-language";
 import { summaryMetricDefinitions } from "@/lib/summary-metrics";
 
@@ -89,21 +90,22 @@ export default async function TreasuryPage({
 
   return (
     <>
-      <PageHeader eyebrow="Treasury" title={`Treasury View · ${getRunReference(runId)}`} description="Treasury pressure plus a cashflow lens that separates cash in, obligations, payouts, and fulfillment." />
+      <PageHeader eyebrow="Treasury" title={`Treasury View · ${getRunReference(runId)}`} description="Treasury safety view: cash in, revenue kept, payouts, fulfillment cost, pressure, and runway." />
 
       {/* Tab nav */}
       <nav className="tab-nav">
         <Link href={`/runs/${run.id}`} className="tab-item">Summary</Link>
         <Link href={`/distribution/${run.id}`} className="tab-item">Distribution</Link>
+        <Link href={`/token-flow/${run.id}`} className="tab-item">Token Flow</Link>
         <Link href={`/treasury/${run.id}`} className="tab-item active">Treasury</Link>
         <Link href={`/decision-pack/${run.id}`} className="tab-item">Decision Pack</Link>
       </nav>
 
       <section className="page-grid">
-        {/* Treasury Position */}
-        <Card className="span-12" title="Treasury Position">
+        {/* Treasury Summary */}
+        <Card className="span-12" title="Treasury Summary">
           <p className="card-intro">
-            Company cash position from the cashflow lens. Fiat and cashflow values are shown in $.
+            Money view for this result. Dollar values are shown in USD.
           </p>
           <div className="decision-kpi-grid">
             {treasuryPositionMetrics.map((metric) => (
@@ -115,8 +117,8 @@ export default async function TreasuryPage({
           </div>
         </Card>
 
-        {/* Cashflow Obligations */}
-        <Card className="span-8" title="Cashflow Obligations">
+        {/* Cash Owed and Paid */}
+        <Card className="span-8" title="Cash Owed and Paid">
           <table className="table">
             <thead><tr><th>Measure</th><th>Value</th></tr></thead>
             <tbody>
@@ -135,15 +137,15 @@ export default async function TreasuryPage({
           </table>
         </Card>
 
-        {/* Risk Flags */}
-        <Card className="span-4" title="Risk Flags">
+        {/* Warnings */}
+        <Card className="span-4" title="Warnings">
           {run.flags.length === 0 ? <p className="muted">No treasury warnings.</p> : null}
           {run.flags.length > 0 ? (
             <div className="flag-list">
               {run.flags.map((flag) => (
                 <div className="flag-item" data-severity={flag.severity === "ERROR" ? "critical" : flag.severity === "WARNING" ? "warning" : "info"} key={flag.id}>
                   <span className="flag-label">{getRiskSeverityLabel(flag.severity)}</span>
-                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{flag.message}</div>
+                  <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>{simplifyResultText(flag.message)}</div>
                 </div>
               ))}
             </div>
@@ -161,9 +163,9 @@ export default async function TreasuryPage({
           ))}
         </div>
 
-        <Card className="span-12" title="Cashflow Lens Audit Trail">
+        <Card className="span-12" title="Full Money Details">
           <p className="card-intro">
-            Full cashflow breakdown used by the treasury and decision-pack logic.
+            Full money breakdown used by treasury and decision logic.
           </p>
           <table className="table">
             <thead><tr><th>Measure</th><th>Value</th></tr></thead>
