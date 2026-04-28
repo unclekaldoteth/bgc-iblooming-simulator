@@ -11,18 +11,22 @@ The simulator is an internal decision console for testing `ALPHA` policy setting
 Today, the codebase models:
 
 - snapshot registration, validation, and approval
-- snapshot import runs and canonical member-month facts
+- snapshot import runs and imported member-month rows
 - executable baseline model rules
 - scenario configuration
 - queued simulation runs
 - dataset-driven simulation at `member-month` grain
 - result storage
 - founder-facing decision packs
+- Full Detail CSV import and export with `record_type`
+- scenario mode separation between imported data and forecast assumptions
+- ALPHA and Web3 assumption fields, including token price basis
 
 Today, the codebase does not yet model:
 
 - actual row-level replay of historical snapshot data
-- real onchain behavior
+- live onchain transactions
+- proof that a future public token will trade at a specific price
 - full production tokenomics
 - calibrated production-grade thresholds and regression fixtures
 
@@ -30,7 +34,7 @@ Today, the codebase does not yet model:
 
 ### Snapshot
 
-A `snapshot` is a registered dataset reference and imported canonical dataset used as the input context for a run.
+A `snapshot` is a registered dataset reference and imported engine-ready dataset used as the input context for a run.
 
 In the current codebase, a snapshot stores:
 
@@ -42,13 +46,29 @@ In the current codebase, a snapshot stores:
 - notes
 - validation status
 - import runs
-- imported canonical `SnapshotMemberMonthFact` rows
+- imported `SnapshotMemberMonthFact` rows
 
-Important: a run still requires an `APPROVED` snapshot, and the engine now computes results from the imported canonical rows attached to that snapshot.
+Important: a run still requires an `APPROVED` snapshot, and the engine computes results from the imported rows attached to that snapshot.
+
+### Snapshot File Type
+
+`Snapshot File Type` tells the engine how to read the uploaded file.
+
+Simple labels used in the UI:
+
+- `Monthly CSV`: one row is one member in one month. Fastest for basic simulation.
+- `Full Detail CSV`: one normal CSV with a `record_type` column. Best CSV format for complete Source Detail checks.
+- `Full Detail JSON`: same full-detail model as Full Detail CSV, but as JSON.
+- `Full Detail Bundle`: a packaged full-detail source set prepared from multiple files.
+- `Hybrid Data`: mixed detail rows and monthly aggregate rows.
+
+The detailed dictionary is in [SNAPSHOT_DATA_DICTIONARY.md](./SNAPSHOT_DATA_DICTIONARY.md).
+
+Important: Monthly CSV can run simulations, but it cannot make every Source Detail item available because it does not contain enough event-level detail.
 
 ### Snapshot Import Run
 
-A `snapshot import run` is one queued worker job that reads a CSV file and attempts to turn it into canonical facts.
+A `snapshot import run` is one queued worker job that reads a snapshot file and attempts to turn it into engine-ready rows.
 
 It stores:
 
@@ -61,7 +81,7 @@ It stores:
 
 ### Snapshot Member-Month Fact
 
-A `snapshot member-month fact` is the canonical simulation input row for MVP.
+A `snapshot member-month fact` is the basic monthly simulation input row for MVP.
 
 It stores one member-month observation with fields such as:
 
@@ -77,6 +97,35 @@ It stores one member-month observation with fields such as:
 - `cashoutUsd`
 - `sinkSpendUsd`
 - `activeMember`
+
+### Full Detail CSV
+
+`Full Detail CSV` is a spreadsheet-friendly way to provide detailed source data.
+
+It uses a `record_type` column. That column tells the engine what each row means.
+
+Primary `record_type` values:
+
+- `member`
+- `member_alias`
+- `role_history`
+- `offer`
+- `business_event`
+- `pc_entry`
+- `sp_entry`
+- `reward_obligation`
+- `pool_entry`
+- `cashout_event`
+- `qualification_window`
+- `qualification_status`
+
+Simple meaning:
+
+- `member` is the simulator's internal person/account.
+- `member_alias` is the source-system ID for that person/account.
+- `business_event` is what happened in the business system.
+- `pc_entry`, `sp_entry`, `reward_obligation`, `pool_entry`, and `cashout_event` are ledger rows.
+- `qualification_window` and `qualification_status` make time-based qualifications explicit.
 
 ### Baseline Model
 
@@ -104,6 +153,30 @@ It contains:
 - parameter JSON
 
 A scenario is what users build in the Scenario Builder screen.
+
+### Scenario Mode
+
+`Scenario Mode` controls whether a run uses imported data only or adds forecast assumptions.
+
+- `Imported Data Only` uses imported snapshot periods. Growth forecast fields stay locked.
+- `Add Forecast` unlocks growth assumptions and must be read as an estimate.
+
+In the code, the old internal values are `founder_safe` and `advanced_forecast`. The UI now uses simpler wording because non-technical users should not need to understand internal guardrail names.
+
+### ALPHA And Web3 Settings
+
+`ALPHA & Web3` settings decide how ALPHA should be described in Token Flow and Whitepaper outputs.
+
+Key terms:
+
+- `ALPHA classification`: whether ALPHA is an internal credit, points layer, off-chain token, or future on-chain token.
+- `Can ALPHA be transferred?`: whether ALPHA is non-transferable, limited to the platform, or externally transferable.
+- `On-chain status`: whether ALPHA is not on-chain, planned, on testnet, or on mainnet.
+- `Supply model`: whether supply is not applicable, uncapped internal, fixed supply, or capped emission.
+- `Price basis`: why the scenario is allowed to assign a USD price to ALPHA.
+- `ALPHA price ($)`: assumed USD value for one ALPHA in the scenario.
+
+Important: the engine can read `ALPHA price ($)`, but it does not prove that a public market will accept that price. A public token price must be supported by tokenomics, reserve, liquidity, oracle, or market assumptions.
 
 ### Simulation Run
 
@@ -193,7 +266,7 @@ The `Distribution` screen shows ALPHA behavior, issued-share concentration, scen
 
 ### Treasury
 
-The `Treasury` screen shows company cashflow truth first, then treasury health signals.
+The `Treasury` screen shows company cashflow data first, then treasury health signals.
 
 It includes:
 
@@ -286,7 +359,7 @@ Important: a run can only launch against an `APPROVED` snapshot.
 
 - `QUEUED`: import job was created and is waiting for the worker
 - `RUNNING`: worker is parsing and validating the CSV
-- `COMPLETED`: canonical facts were written successfully
+- `COMPLETED`: imported engine rows were written successfully
 - `FAILED`: import failed and issues were stored
 
 ### Baseline Model Status
@@ -631,14 +704,14 @@ Snapshot import validation currently checks:
 The simulator is now dataset-driven at `member-month` grain, but it still has important MVP limits:
 
 - no raw event replay
-- some exact understanding-doc rules still require canonical JSON rather than compatibility CSV
+- some exact understanding-doc rules still require Full Detail JSON rather than Monthly CSV
 - no direct production sync
 - no calibrated regression fixture suite yet
 - approval and metadata validation are still separate from import-run completion logic
 
 So the current simulator should be understood as:
 
-`a working internal simulator with real workflow, canonical imports, executable baseline rules, and dataset-driven math at member-month grain`
+`a working internal simulator with real workflow, full-detail imports, executable baseline rules, and dataset-driven math at member-month grain`
 
 ## Recommended Reading Order
 

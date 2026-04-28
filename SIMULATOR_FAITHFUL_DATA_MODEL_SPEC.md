@@ -4,6 +4,10 @@ Status: Working specification
 Date: 2026-04-18  
 Scope: Define the minimum simulator data model required to stay faithful to the immutable BGC x iBLOOMING understanding document.
 
+Plain-language note: this is the technical design spec. In user-facing docs and UI, use `Full Detail Data` instead of `canonical data` whenever possible. `Canonical` means the engine has a structured source-detail version of the business data, not just a monthly summary.
+
+For snapshot file types, CSV columns, `record_type`, and accepted values, see [SNAPSHOT_DATA_DICTIONARY.md](./SNAPSHOT_DATA_DICTIONARY.md).
+
 ## 1. Core Rule
 
 The understanding document is the final business source of truth.

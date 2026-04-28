@@ -11,18 +11,21 @@ Simulator ini adalah konsol keputusan internal untuk menguji pengaturan kebijaka
 Saat ini, codebase memodelkan:
 
 - pendaftaran, validasi, dan approval snapshot
-- import snapshot dan canonical member-month facts
+- import snapshot dan row member-month yang siap dibaca engine
 - baseline model yang bisa dieksekusi
 - konfigurasi scenario
 - simulation run berbasis queue
 - simulasi berbasis dataset pada granularitas `member-month`
 - penyimpanan hasil
 - decision pack untuk founder
+- import dan export Full Detail CSV dengan `record_type`
+- pemisahan mode scenario antara data import dan asumsi forecast
+- field asumsi ALPHA dan Web3, termasuk token price basis
 
 Saat ini, codebase belum memodelkan:
 
-- replay data snapshot mentah per baris secara penuh
-- perilaku onchain yang nyata
+- live onchain transactions
+- bukti bahwa future public token pasti akan punya harga tertentu di pasar
 - tokenomics produksi yang lengkap
 - threshold terkalibrasi level produksi dan regression fixtures
 
@@ -30,7 +33,7 @@ Saat ini, codebase belum memodelkan:
 
 ### Snapshot
 
-`snapshot` adalah referensi dataset yang terdaftar beserta canonical dataset hasil import yang dipakai sebagai konteks input untuk sebuah run.
+`snapshot` adalah referensi dataset yang terdaftar beserta dataset hasil import yang sudah siap dibaca engine sebagai konteks input untuk sebuah run.
 
 Di codebase saat ini, snapshot menyimpan:
 
@@ -42,13 +45,29 @@ Di codebase saat ini, snapshot menyimpan:
 - catatan
 - status validasi
 - import runs
-- canonical `SnapshotMemberMonthFact` rows yang sudah diimport
+- `SnapshotMemberMonthFact` rows yang sudah diimport
 
-Penting: sebuah run tetap membutuhkan snapshot dengan status `APPROVED`, dan engine sekarang menghitung hasil dari canonical rows yang terhubung ke snapshot tersebut.
+Penting: sebuah run tetap membutuhkan snapshot dengan status `APPROVED`, dan engine menghitung hasil dari rows yang terhubung ke snapshot tersebut.
+
+### Snapshot File Type
+
+`Snapshot File Type` memberi tahu engine cara membaca file yang diupload.
+
+Label sederhana di UI:
+
+- `Monthly CSV`: satu baris adalah satu member dalam satu bulan. Paling cepat untuk simulasi dasar.
+- `Full Detail CSV`: satu CSV biasa dengan kolom `record_type`. Ini format CSV terbaik untuk membuat Source Detail lengkap.
+- `Full Detail JSON`: model detail yang sama seperti Full Detail CSV, tetapi dalam bentuk JSON.
+- `Full Detail Bundle`: paket data detail yang disiapkan dari beberapa source file.
+- `Hybrid Data`: campuran detail rows dan monthly aggregate rows.
+
+Dictionary detailnya ada di [SNAPSHOT_DATA_DICTIONARY.md](./SNAPSHOT_DATA_DICTIONARY.md).
+
+Penting: Monthly CSV bisa dipakai untuk menjalankan simulasi, tetapi tidak bisa membuat semua Source Detail available karena datanya tidak cukup detail sampai level event.
 
 ### Snapshot Import Run
 
-`snapshot import run` adalah satu job worker dalam queue yang membaca file CSV dan mencoba mengubahnya menjadi canonical facts.
+`snapshot import run` adalah satu job worker dalam queue yang membaca file snapshot dan mencoba mengubahnya menjadi row yang siap dibaca engine.
 
 Objek ini menyimpan:
 
@@ -78,6 +97,35 @@ Objek ini menyimpan satu observasi member-bulan dengan field seperti:
 - `sinkSpendUsd`
 - `activeMember`
 
+### Full Detail CSV
+
+`Full Detail CSV` adalah cara spreadsheet-friendly untuk memberikan data source yang detail.
+
+Format ini memakai kolom `record_type`. Kolom itu memberi tahu engine arti dari setiap baris.
+
+Nilai utama `record_type`:
+
+- `member`
+- `member_alias`
+- `role_history`
+- `offer`
+- `business_event`
+- `pc_entry`
+- `sp_entry`
+- `reward_obligation`
+- `pool_entry`
+- `cashout_event`
+- `qualification_window`
+- `qualification_status`
+
+Cara membacanya:
+
+- `member` adalah orang/account internal simulator.
+- `member_alias` adalah ID orang tersebut di source system.
+- `business_event` adalah kejadian bisnis.
+- `pc_entry`, `sp_entry`, `reward_obligation`, `pool_entry`, dan `cashout_event` adalah baris ledger.
+- `qualification_window` dan `qualification_status` membuat qualification berbasis waktu menjadi eksplisit.
+
 ### Baseline Model
 
 `baseline model` adalah versi model bernama yang dihubungkan ke scenario dan run.
@@ -104,6 +152,30 @@ Scenario berisi:
 - parameter JSON
 
 Scenario adalah objek yang dibangun user di layar Scenario Builder.
+
+### Scenario Mode
+
+`Scenario Mode` mengatur apakah run hanya memakai data import atau menambahkan asumsi forecast.
+
+- `Imported Data Only` memakai periode yang ada di snapshot import. Field growth forecast tetap dikunci.
+- `Add Forecast` membuka asumsi growth dan hasilnya harus dibaca sebagai estimasi.
+
+Di code, nilai internal lamanya adalah `founder_safe` dan `advanced_forecast`. UI sekarang memakai bahasa yang lebih mudah karena user bisnis tidak perlu memahami nama guardrail internal.
+
+### ALPHA And Web3 Settings
+
+`ALPHA & Web3` mengatur bagaimana ALPHA dijelaskan di Token Flow dan Whitepaper output.
+
+Istilah penting:
+
+- `ALPHA classification`: apakah ALPHA dianggap internal credit, points, off-chain token, atau future on-chain token.
+- `Can ALPHA be transferred?`: apakah ALPHA tidak bisa dipindahkan, terbatas di platform, atau bisa dipindahkan ke luar.
+- `On-chain status`: apakah ALPHA belum on-chain, masih planned, sudah testnet, atau mainnet.
+- `Supply model`: apakah supply tidak berlaku, uncapped internal, fixed supply, atau capped emission.
+- `Price basis`: alasan kenapa scenario boleh memberi harga USD ke ALPHA.
+- `ALPHA price ($)`: asumsi nilai USD untuk satu ALPHA di scenario.
+
+Penting: engine bisa membaca `ALPHA price ($)`, tetapi engine tidak membuktikan bahwa market public akan menerima harga itu. Harga public token harus didukung oleh tokenomics, reserve, liquidity, oracle, atau market assumption.
 
 ### Simulation Run
 
@@ -193,7 +265,7 @@ Layar `Distribution` menampilkan perilaku ALPHA, konsentrasi issued share, total
 
 ### Treasury
 
-Layar `Treasury` menampilkan company cashflow truth lebih dulu, lalu treasury health signals.
+Layar `Treasury` menampilkan company cashflow data lebih dulu, lalu treasury health signals.
 
 Isinya saat ini meliputi:
 
@@ -286,7 +358,7 @@ Penting: sebuah run hanya bisa dijalankan terhadap snapshot dengan status `APPRO
 
 - `QUEUED`: import job sudah dibuat dan sedang menunggu worker
 - `RUNNING`: worker sedang parsing dan memvalidasi CSV
-- `COMPLETED`: canonical facts berhasil ditulis
+- `COMPLETED`: row engine hasil import berhasil ditulis
 - `FAILED`: import gagal dan issues disimpan
 
 ### Baseline Model Status
@@ -631,14 +703,14 @@ Validasi snapshot import saat ini memeriksa:
 Simulator saat ini sudah dataset-driven pada granularitas `member-month`, tetapi masih memiliki keterbatasan penting di level MVP:
 
 - belum ada replay event mentah
-- beberapa rule understanding doc yang exact masih butuh canonical JSON, bukan compatibility CSV
+- beberapa rule understanding doc yang exact masih butuh Full Detail JSON, bukan Monthly CSV
 - belum ada sinkronisasi langsung ke production
 - belum ada suite regression fixture yang terkalibrasi
 - approval dan metadata validation masih terpisah dari logika penyelesaian import-run
 
 Jadi simulator saat ini sebaiknya dipahami sebagai:
 
-`simulator internal yang sudah berjalan, dengan workflow nyata, canonical imports, baseline rules yang bisa dieksekusi, dan perhitungan berbasis dataset pada granularitas member-month`
+`simulator internal yang sudah berjalan, dengan workflow nyata, full-detail imports, baseline rules yang bisa dieksekusi, dan perhitungan berbasis dataset pada granularitas member-month`
 
 ## Urutan Bacaan Yang Direkomendasikan
 

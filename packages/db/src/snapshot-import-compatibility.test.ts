@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -196,6 +197,43 @@ test("full detail CSV sample derives facts that pass understanding_doc_strict va
   assert.equal(payload.qualification_status_history.length, 1);
   assert.equal(derived.memberMonthFacts.length, 13);
   assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+});
+
+test("repository full detail CSV examples stay parseable by canonical parser", () => {
+  const examples = [
+    {
+      file: "case-1m-bgc-iblooming-full-detail.csv",
+      expected: {
+        members: 14,
+        businessEvents: 15,
+        rewardObligations: 12,
+        poolEntries: 2,
+        cashoutEvents: 12
+      }
+    },
+    {
+      file: "case-10m-12m-bgc-iblooming-full-detail.csv",
+      expected: {
+        members: 146,
+        businessEvents: 180,
+        rewardObligations: 144,
+        poolEntries: 24,
+        cashoutEvents: 144
+      }
+    }
+  ];
+
+  for (const example of examples) {
+    const payload = parseCanonicalCsvSnapshotText(
+      readFileSync(new URL(`../../../examples/${example.file}`, import.meta.url), "utf8")
+    );
+
+    assert.equal(payload.members.length, example.expected.members, example.file);
+    assert.equal(payload.business_events.length, example.expected.businessEvents, example.file);
+    assert.equal(payload.reward_obligations.length, example.expected.rewardObligations, example.file);
+    assert.equal(payload.pool_entries.length, example.expected.poolEntries, example.file);
+    assert.equal(payload.cashout_events.length, example.expected.cashoutEvents, example.file);
+  }
 });
 
 test("legacy_compatibility mode skips strict history checks", () => {

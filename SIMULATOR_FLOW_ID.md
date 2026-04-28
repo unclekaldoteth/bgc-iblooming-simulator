@@ -47,18 +47,31 @@ Cara paling gampang memahaminya:
    User membuat snapshot dengan mengisi:
    - nama snapshot
    - source systems
+   - file type
+   - check method
    - rentang tanggal
    - upload CSV atau file URI
    - jumlah record
    - catatan
 
    Tujuan halaman ini adalah mendaftarkan satu versi dataset historis yang nanti akan dipakai untuk simulasi.
-   Kalau snapshot makin banyak, tim bisa meng-archive snapshot lama dari registry default tanpa menghapus truth historisnya.
-   Storage cleanup ditempatkan di bawah registry sebagai panel maintenance sekunder, supaya user membaca data truth aktif lebih dulu dan kandidat cleanup belakangan.
+   `File type` memberi tahu engine seberapa detail data yang diupload:
+   - `Monthly CSV`: satu baris adalah satu member dalam satu bulan. Paling cepat untuk simulasi dasar.
+   - `Full Detail CSV`: satu CSV biasa dengan kolom `record_type`. Ini format terbaik untuk user non-teknis yang tetap ingin Source Detail lengkap.
+   - `Full Detail JSON`: model detail yang sama seperti Full Detail CSV, tetapi dalam bentuk JSON.
+   - `Full Detail Bundle`: paket data detail yang disiapkan dari beberapa source file.
+   - `Hybrid Data`: campuran source-detail rows dan monthly aggregate rows.
+
+   Aturan paling penting: **Monthly CSV paling mudah, tetapi Full Detail CSV adalah format CSV yang bisa membuat checklist Source Detail lengkap.**
+   Kalau snapshot makin banyak, tim bisa meng-archive snapshot lama dari registry default tanpa menghapus data historisnya.
+   Storage cleanup ditempatkan di bawah registry sebagai panel maintenance sekunder, supaya user membaca data bisnis aktif lebih dulu dan kandidat cleanup belakangan.
 
 4. **Import dataset**  
-   Setelah snapshot dibuat, user klik **Import facts**.  
-   Aksi ini mengirim CSV ke background worker, lalu worker membaca file baris per baris dan mengubahnya ke format internal standar yang disebut **member-month fact**.
+   Setelah snapshot dibuat, user klik **Import**.
+   Aksi ini mengirim file ke background worker, lalu worker membaca file baris per baris.
+
+   Monthly CSV langsung diimport sebagai **member-month facts**.
+   Full Detail CSV dan Full Detail JSON diimport sebagai source-detail records dulu, lalu engine menurunkan monthly simulation rows dari data detail tersebut.
 
    Setiap baris mewakili satu member pada satu periode waktu, dengan field seperti:
    - `pc_volume`
@@ -70,17 +83,22 @@ Cara paling gampang memahaminya:
    - `active_member`
 
    Jadi langkah ini mengubah data CSV mentah menjadi data terstruktur yang siap dipakai untuk simulasi.
+   Untuk Full Detail CSV, kolom kuncinya adalah `record_type`. Kolom ini memberi tahu engine apakah baris tersebut adalah member, alias, role history, offer, business event, PC entry, SP entry, reward obligation, pool entry, cash-out event, qualification window, atau qualification status.
 
 5. **Clean and validate the data**  
    Masih di halaman `Snapshots`, sistem akan mengecek apakah dataset ini aman dipakai.  
-   Ada 2 lapisan pengecekan:
+   Di UI sekarang ini disebut **Data Check**. Yang dicek meliputi:
 
-   - **Metadata validation**  
-     Mengecek rentang tanggal, jumlah record, source systems, format file URI, dan apakah snapshot mencakup histori yang cukup panjang.
-   - **CSV/import validation**  
-     Mengecek apakah kolom wajib ada, apakah angka valid, apakah boolean valid, dan apakah ada baris duplikat.
+   - detail snapshot seperti rentang tanggal, source systems, dan file URI
+   - kolom wajib
+   - angka yang tidak valid
+   - boolean yang tidak valid
+   - baris duplikat
+   - kelengkapan source detail untuk import detail
+   - P0 data fingerprint
 
-   Kalau ada masalah, layar akan menampilkan daftar issue. Kalau lolos, snapshot akan dianggap valid.
+   Kalau ada masalah, layar akan menampilkan daftar issue. Kalau lolos, snapshot siap untuk di-approve.
+   Snapshot dengan status `Data Check Missing` sebaiknya di-import ulang sebelum dipakai sebagai bukti kuat.
 
 6. **Approve the snapshot**  
    Setelah dataset bersih, user klik **Approve**.  
@@ -98,8 +116,6 @@ Cara paling gampang memahaminya:
    Parameter utama yang bisa diatur adalah:
    - `k_pc`
    - `k_sp`
-   - reward global factor
-   - reward pool factor
    - user monthly cap
    - group monthly cap
    - sink target
@@ -108,9 +124,18 @@ Cara paling gampang memahaminya:
    - cash-out fee
    - cash-out windows per year
    - window length
+   - asumsi sink adoption
+   - asumsi ALPHA dan Web3
 
    Ini adalah tahap desain kebijakan: user sedang menentukan “aturan ALPHA seperti apa yang ingin kita uji?”
+   Mode scenario penting untuk cara membaca hasil:
+   - `Imported Data Only` menjaga growth forecast tetap terkunci dan memakai periode yang memang ada di data import.
+   - `Add Forecast` membuka asumsi growth, dan hasilnya harus dibaca sebagai estimasi.
+
+   Global reward factor dan pool reward factor tetap dikunci ke baseline model. Field ini terlihat sebagai konteks, tetapi mengubahnya akan mengubah core reward math dan membuat compare antar scenario kurang reliable.
    Scenario lama juga bisa di-archive agar registry default tetap fokus pada kandidat policy yang masih aktif.
+
+   Section `ALPHA & Web3` mengatur bahasa dan asumsi untuk Token Flow dan Whitepaper output. Di sini ALPHA bisa didefinisikan sebagai internal credit, points, off-chain token, atau future on-chain token. Section ini juga menyimpan token price basis, supply model, treasury reserve, liquidity pool, buy demand, sell pressure, burn, vesting unlock, dan decision rules.
 
 8. **Run the simulation**  
    Saat user klik **Run**, aplikasi akan:
@@ -132,7 +157,9 @@ Cara paling gampang memahaminya:
    - mengonversi `PC` dan `SP` menjadi ALPHA
    - menyesuaikan berdasarkan aktivitas member
    - menerapkan user cap dan group cap
-   - memperkirakan berapa banyak ALPHA yang dibelanjakan, dicash-out, atau dihold
+   - membaca actual internal use dari `sink_spend_usd`
+   - menambahkan modeled internal use hanya kalau scenario memiliki asumsi sink adoption
+   - memperkirakan berapa banyak ALPHA yang dicash-out atau dihold
    - menghitung treasury liability dan inflow
 
    Jadi di sinilah aturan kebijakan diterapkan ke perilaku historis yang nyata.
@@ -167,10 +194,11 @@ Cara paling gampang memahaminya:
     Urutan baca `Result Ref` saat ini menaruh ref yang dipin lebih dulu, lalu ref lain berdasarkan recency.
 
 12. **Review supporting views**
-    Dari halaman run, user bisa membuka:
-    - `Distribution`: perilaku ALPHA, konsentrasi issued share, total per fase, dan split per source system
-    - `Treasury`: company cashflow lens lebih dulu, lalu runway, payout pressure, internal use, dan risk flags
-    - `Decision Pack`: output rekomendasi untuk founder dengan scenario basis, blockers, dan export actions
+   Dari halaman run, user bisa membuka:
+   - `Distribution`: perilaku ALPHA, konsentrasi issued share, total per fase, dan split per source system
+   - `Token Flow`: opening balance, issued, used, cash-out, held, ending balance, dan token price basis
+   - `Treasury`: company cashflow lens lebih dulu, lalu runway, payout pressure, internal use, dan risk flags
+   - `Decision Pack`: output rekomendasi untuk founder dengan scenario basis, blockers, dan export actions
 
     Ini adalah lapisan keputusan, di mana metrik mentah diterjemahkan menjadi makna bisnis.
 

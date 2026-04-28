@@ -7,6 +7,8 @@ Source of truth:
 
 This spec defines the company-facing financial metrics that now exist in the simulation layer.
 
+Plain-language note: this spec explains money metrics. For the snapshot fields that feed these metrics, see [SNAPSHOT_DATA_DICTIONARY.md](./SNAPSHOT_DATA_DICTIONARY.md).
+
 ## Principles
 
 - `cash in` must stay separate from `PC`, `SP/LTS`, and reward basis.
