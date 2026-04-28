@@ -20,7 +20,13 @@ import {
 } from "@bgc-alpha/schemas";
 
 import type { AppSessionUser } from "@/lib/auth-session";
-import { getDataSetStatusLabel, getRunReference, getScenarioModeLabel } from "@/lib/common-language";
+import {
+  getDataSetStatusLabel,
+  getRunReference,
+  getScenarioModeLabel,
+  getSimpleScenarioValueLabel,
+  getTokenPriceBasisLabel
+} from "@/lib/common-language";
 
 /** Locale-proof numeric input — always shows "." as decimal separator */
 function NumericInput({
@@ -216,6 +222,18 @@ const defaultWeb3Tokenomics: Web3Tokenomics = {
     enabled: false,
     reserve_pct: null,
     launch_pool_usd: null
+  },
+  market: {
+    price_basis: "not_applicable_internal",
+    alpha_usd_price: null,
+    circulating_supply: null,
+    treasury_reserve_usd: null,
+    liquidity_pool_alpha: null,
+    liquidity_pool_usd: null,
+    monthly_buy_demand_usd: null,
+    monthly_sell_pressure_alpha: null,
+    monthly_burn_alpha: null,
+    vesting_unlock_alpha: null
   },
   governance: {
     mode: "founder_admin",
@@ -792,6 +810,22 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
     }));
   }
 
+  function updateWeb3Market(nextValues: Partial<Web3Tokenomics["market"]>) {
+    setFormState((current) => ({
+      ...current,
+      parameters: {
+        ...current.parameters,
+        web3_tokenomics: {
+          ...current.parameters.web3_tokenomics,
+          market: {
+            ...current.parameters.web3_tokenomics.market,
+            ...nextValues
+          }
+        }
+      }
+    }));
+  }
+
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
       {message ? (
@@ -1341,20 +1375,22 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                 ) : null}
               </div>
 
-              {/* Accordion: Token Flow & Web3 */}
+              {/* Accordion: ALPHA & Web3 */}
               <div className="accordion-section" data-open={openSections.has("token-flow")}>
                 <button className="accordion-header" onClick={() => toggleSection("token-flow")} type="button">
                   <span className="accordion-title">
-                    Token Flow & Web3
+                    ALPHA & Web3
                     <GuardrailBadge tone="review">Needs review</GuardrailBadge>
                   </span>
-                  <span className="accordion-summary">{p.alpha_token_policy.classification.replace(/_/g, " ")} · {p.web3_tokenomics.network_status.replace(/_/g, " ")}</span>
+                  <span className="accordion-summary">
+                    {getSimpleScenarioValueLabel(p.alpha_token_policy.classification)} · {getTokenPriceBasisLabel(p.web3_tokenomics.market.price_basis)}
+                  </span>
                   <ChevronIcon />
                 </button>
                 {openSections.has("token-flow") ? (
                   <div className="accordion-body">
                     <p className="muted" style={{ fontSize: "0.78rem", marginTop: 0 }}>
-                      These settings control how ALPHA is described in Token Flow and Whitepaper outputs. Internal non-transferable defaults are safest for phase 1; public Web3 assumptions need extra review.
+                      These settings control how ALPHA is described in Token Flow and Whitepaper outputs. Keep the internal defaults for phase 1. Use token price fields only when ALPHA needs public-token or market assumptions.
                     </p>
                     <div className="parameter-grid">
                       <label className="field">
@@ -1380,7 +1416,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         </select>
                       </label>
                       <label className="field">
-                        <span>Transferability</span>
+                        <span>Can ALPHA be transferred?</span>
                         <select
                           disabled={!canWrite || isPending}
                           onChange={(e) => setFormState(c => ({
@@ -1401,7 +1437,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         </select>
                       </label>
                       <label className="field">
-                        <span>Status on-chain</span>
+                        <span>On-chain status</span>
                         <select
                           disabled={!canWrite || isPending}
                           onChange={(e) => setFormState(c => ({
@@ -1423,7 +1459,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         </select>
                       </label>
                       <label className="field">
-                        <span>Mode forecast</span>
+                        <span>Forecast mode</span>
                         <select
                           disabled={!canWrite || isPending}
                           onChange={(e) => setFormState(c => ({
@@ -1507,7 +1543,108 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         />
                       </label>
                       <label className="field">
-                        <span>Governance</span>
+                        <span>Price basis</span>
+                        <select
+                          disabled={!canWrite || isPending}
+                          onChange={(e) => updateWeb3Market({
+                            price_basis: e.target.value as Web3Tokenomics["market"]["price_basis"]
+                          })}
+                          value={p.web3_tokenomics.market.price_basis}
+                        >
+                          <option value="not_applicable_internal">Internal only / no market price</option>
+                          <option value="fixed_accounting">Fixed internal rate</option>
+                          <option value="oracle_feed">Oracle price feed</option>
+                          <option value="liquidity_pool">Liquidity pool price</option>
+                          <option value="market_forecast">Market forecast</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span>ALPHA price ($)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ alpha_usd_price: val > 0 ? val : null })}
+                          step="0.0001"
+                          value={p.web3_tokenomics.market.alpha_usd_price ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Circulating supply</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ circulating_supply: val > 0 ? val : null })}
+                          value={p.web3_tokenomics.market.circulating_supply ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Treasury reserve ($)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ treasury_reserve_usd: val > 0 ? val : null })}
+                          step="0.01"
+                          value={p.web3_tokenomics.market.treasury_reserve_usd ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Pool ALPHA</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ liquidity_pool_alpha: val > 0 ? val : null })}
+                          value={p.web3_tokenomics.market.liquidity_pool_alpha ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Pool USDC ($)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ liquidity_pool_usd: val > 0 ? val : null })}
+                          step="0.01"
+                          value={p.web3_tokenomics.market.liquidity_pool_usd ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Monthly buy demand ($)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ monthly_buy_demand_usd: val > 0 ? val : null })}
+                          step="0.01"
+                          value={p.web3_tokenomics.market.monthly_buy_demand_usd ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Monthly sell pressure (ALPHA)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ monthly_sell_pressure_alpha: val > 0 ? val : null })}
+                          value={p.web3_tokenomics.market.monthly_sell_pressure_alpha ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Monthly burn (ALPHA)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ monthly_burn_alpha: val > 0 ? val : null })}
+                          value={p.web3_tokenomics.market.monthly_burn_alpha ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Vesting unlock (ALPHA/mo)</span>
+                        <NumericInput
+                          disabled={!canWrite || isPending}
+                          min="0"
+                          onChange={(val) => updateWeb3Market({ vesting_unlock_alpha: val > 0 ? val : null })}
+                          value={p.web3_tokenomics.market.vesting_unlock_alpha ?? ""}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Decision rules</span>
                         <select
                           disabled={!canWrite || isPending}
                           onChange={(e) => setFormState(c => ({

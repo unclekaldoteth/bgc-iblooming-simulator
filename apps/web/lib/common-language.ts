@@ -141,6 +141,47 @@ const scenarioModeLabels: Record<string, string> = {
   advanced_forecast: "Add Forecast"
 };
 
+const simpleScenarioValueLabels: Record<string, string> = {
+  advanced_forecast: "Add Forecast",
+  alpha_internal: "Internal ALPHA",
+  auto: "Auto",
+  capped_emission: "Capped emission",
+  cohort_projection: "Member forecast",
+  dao: "DAO",
+  externally_transferable: "Externally transferable",
+  fixed_accounting: "Fixed internal rate",
+  fixed_supply: "Fixed supply",
+  founder_admin: "Team admin",
+  future_on_chain_token: "Future on-chain token",
+  internal_credit: "Internal credit",
+  liquidity_pool: "Liquidity pool price",
+  mainnet: "Mainnet",
+  market_forecast: "Market forecast",
+  multisig_admin: "Multisig admin",
+  non_transferable: "Not transferable",
+  not_applicable_internal: "Internal only / not applicable",
+  not_on_chain: "Not on-chain",
+  not_started: "Not started",
+  off_chain_token: "Off-chain token",
+  oracle_feed: "Oracle price feed",
+  planned: "Planned",
+  platform_limited: "Platform-limited",
+  points: "Points",
+  projection_overlay: "Add projection",
+  snapshot_window: "Imported data period only",
+  token_voting: "Token voting",
+  uncapped_internal: "Uncapped internal",
+  unreviewed: "Unreviewed"
+};
+
+const tokenPriceBasisLabels: Record<string, string> = {
+  fixed_accounting: "Fixed internal rate",
+  liquidity_pool: "Liquidity pool price",
+  market_forecast: "Market forecast",
+  not_applicable_internal: "Internal only / no market price",
+  oracle_feed: "Oracle price feed"
+};
+
 const canonicalGapStatusLabels: Record<string, string> = {
   covered: "Available",
   partial: "Some Gaps",
@@ -304,6 +345,14 @@ export function getScenarioModeCaveat(mode: string | null | undefined) {
   return "Add Forecast uses growth assumptions. Treat the result as an estimate, not observed data.";
 }
 
+export function getSimpleScenarioValueLabel(value: string | null | undefined) {
+  return simpleScenarioValueLabels[value ?? ""] ?? toTitleCase(value ?? "");
+}
+
+export function getTokenPriceBasisLabel(value: string | null | undefined) {
+  return tokenPriceBasisLabels[value ?? ""] ?? getSimpleScenarioValueLabel(value);
+}
+
 export function getCanonicalGapStatusLabel(status: string) {
   return canonicalGapStatusLabels[status] ?? toTitleCase(status);
 }
@@ -393,6 +442,10 @@ export function simplifyResultText(value: string | null | undefined) {
     .replace(/not_on_chain/g, "not on chain")
     .replace(/alpha_internal/g, "internal ALPHA")
     .replace(/not_applicable_internal/g, "not applicable for internal ALPHA")
+    .replace(/fixed_accounting/g, "fixed internal rate")
+    .replace(/oracle_feed/g, "oracle price feed")
+    .replace(/liquidity_pool/g, "liquidity pool")
+    .replace(/market_forecast/g, "market forecast")
     .replace(/snapshot_window/g, "uploaded data window")
     .replace(/founder_admin/g, "team admin")
     .replace(/not_started/g, "not started")

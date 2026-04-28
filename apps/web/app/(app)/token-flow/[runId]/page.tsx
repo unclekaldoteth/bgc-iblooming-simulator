@@ -14,6 +14,8 @@ import {
   getRunReference,
   getScenarioModeCaveat,
   getScenarioModeLabel,
+  getSimpleScenarioValueLabel,
+  getTokenPriceBasisLabel,
   simplifyResultText
 } from "@/lib/common-language";
 import { readTokenFlowEvidence } from "@/lib/strategic-objectives";
@@ -29,12 +31,36 @@ const ledgerMetricKeys = [
   "alpha_ending_balance_total"
 ] as const;
 
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  style: "currency"
+});
+
+function formatUsd(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? currencyFormatter.format(value)
+    : "Not set";
+}
+
+function formatTokenAmount(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)
+    : "Not set";
+}
+
 function formatTokenPolicyValue(value: string) {
-  return value
-    .replace(/_/g, " ")
-    .replace(/founder/g, "team")
-    .replace(/not applicable internal/g, "not applicable for internal ALPHA")
-    .replace(/alpha internal/g, "internal ALPHA");
+  return getSimpleScenarioValueLabel(value);
+}
+
+function divideIfReady(numerator: number | null | undefined, denominator: number | null | undefined) {
+  return typeof numerator === "number" &&
+    typeof denominator === "number" &&
+    Number.isFinite(numerator) &&
+    Number.isFinite(denominator) &&
+    denominator > 0
+    ? numerator / denominator
+    : null;
 }
 
 function buildPeriodRows(timeSeries: NonNullable<Awaited<ReturnType<typeof getRunById>>>["timeSeries"]) {
@@ -89,6 +115,27 @@ export default async function TokenFlowPage({
   const forecastPolicy = parameters.forecast_policy;
   const sinkAdoption = parameters.sink_adoption_model;
   const web3 = parameters.web3_tokenomics;
+  const market = web3.market;
+  const poolPrice = divideIfReady(market.liquidity_pool_usd, market.liquidity_pool_alpha);
+  const effectiveAlphaUsdPrice =
+    market.alpha_usd_price ?? (market.price_basis === "liquidity_pool" ? poolPrice : null);
+  const reserveBackingPrice = divideIfReady(market.treasury_reserve_usd, market.circulating_supply);
+  const reserveBackingPct =
+    reserveBackingPrice !== null && effectiveAlphaUsdPrice
+      ? (reserveBackingPrice / effectiveAlphaUsdPrice) * 100
+      : null;
+  const marketCap =
+    effectiveAlphaUsdPrice && market.circulating_supply
+      ? effectiveAlphaUsdPrice * market.circulating_supply
+      : null;
+  const sellPressureUsd =
+    effectiveAlphaUsdPrice && market.monthly_sell_pressure_alpha
+      ? effectiveAlphaUsdPrice * market.monthly_sell_pressure_alpha
+      : null;
+  const netMonthlyDemandUsd =
+    typeof market.monthly_buy_demand_usd === "number" && sellPressureUsd !== null
+      ? market.monthly_buy_demand_usd - sellPressureUsd
+      : null;
   const tokenFlowEvidence = readTokenFlowEvidence(run.decisionPacks[0]?.recommendationJson);
   const periodRows = buildPeriodRows(run.timeSeries);
   const summaryByKey = new Map(run.summaryMetrics.map((metric) => [metric.metricKey, metric.metricValue] as const));
@@ -217,6 +264,47 @@ export default async function TokenFlowPage({
             <div><dt>Legal Status</dt><dd>{formatTokenPolicyValue(web3.legal.classification)}</dd></div>
             <div><dt>Smart Contract</dt><dd>{web3.smart_contract.chain ?? "Not set"} / {web3.smart_contract.standard ?? "Not set"}</dd></div>
             <div><dt>Contract Audit</dt><dd>{formatTokenPolicyValue(web3.smart_contract.audit_status)}</dd></div>
+          </dl>
+        </Card>
+
+        <Card className="span-12" title="Token Price Basis">
+          <p className="card-intro">
+            Shows whether ALPHA uses an internal rate or a public-token price assumption.
+          </p>
+          <div className="decision-kpi-grid">
+            <div className="decision-kpi">
+              <span>Price Basis</span>
+              <strong>{getTokenPriceBasisLabel(market.price_basis)}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>ALPHA Price</span>
+              <strong>{formatUsd(effectiveAlphaUsdPrice)}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Pool Price</span>
+              <strong>{formatUsd(poolPrice)}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Reserve Backing</span>
+              <strong>{reserveBackingPct === null ? "Not set" : `${reserveBackingPct.toFixed(2)}%`}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Market Cap</span>
+              <strong>{formatUsd(marketCap)}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Net Monthly Demand</span>
+              <strong>{formatUsd(netMonthlyDemandUsd)}</strong>
+            </div>
+          </div>
+          <dl className="detail-list">
+            <div><dt>Circulating Supply</dt><dd>{formatTokenAmount(market.circulating_supply)} ALPHA</dd></div>
+            <div><dt>Treasury Reserve</dt><dd>{formatUsd(market.treasury_reserve_usd)}</dd></div>
+            <div><dt>Liquidity Pool</dt><dd>{formatTokenAmount(market.liquidity_pool_alpha)} ALPHA · {formatUsd(market.liquidity_pool_usd)}</dd></div>
+            <div><dt>Monthly Buy Demand</dt><dd>{formatUsd(market.monthly_buy_demand_usd)}</dd></div>
+            <div><dt>Monthly Sell Pressure</dt><dd>{formatTokenAmount(market.monthly_sell_pressure_alpha)} ALPHA · {formatUsd(sellPressureUsd)}</dd></div>
+            <div><dt>Monthly Burn</dt><dd>{formatTokenAmount(market.monthly_burn_alpha)} ALPHA</dd></div>
+            <div><dt>Vesting Unlock</dt><dd>{formatTokenAmount(market.vesting_unlock_alpha)} ALPHA / month</dd></div>
           </dl>
         </Card>
 

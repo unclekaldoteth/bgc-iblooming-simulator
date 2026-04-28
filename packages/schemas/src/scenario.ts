@@ -119,6 +119,30 @@ export const web3TokenomicsSchema = z.object({
     })
     .optional()
     .default({}),
+  market: z
+    .object({
+      price_basis: z
+        .enum([
+          "not_applicable_internal",
+          "fixed_accounting",
+          "oracle_feed",
+          "liquidity_pool",
+          "market_forecast"
+        ])
+        .optional()
+        .default("not_applicable_internal"),
+      alpha_usd_price: z.number().positive().nullable().optional().default(null),
+      circulating_supply: z.number().min(0).nullable().optional().default(null),
+      treasury_reserve_usd: z.number().min(0).nullable().optional().default(null),
+      liquidity_pool_alpha: z.number().min(0).nullable().optional().default(null),
+      liquidity_pool_usd: z.number().min(0).nullable().optional().default(null),
+      monthly_buy_demand_usd: z.number().min(0).nullable().optional().default(null),
+      monthly_sell_pressure_alpha: z.number().min(0).nullable().optional().default(null),
+      monthly_burn_alpha: z.number().min(0).nullable().optional().default(null),
+      vesting_unlock_alpha: z.number().min(0).nullable().optional().default(null)
+    })
+    .optional()
+    .default({}),
   governance: z
     .object({
       mode: z.enum(["founder_admin", "multisig_admin", "token_voting", "dao"]).optional().default("founder_admin"),
@@ -331,7 +355,7 @@ export const scenarioGuardrailMatrix: ScenarioGuardrailMatrixEntry[] = [
     parameter_key: "web3_tokenomics",
     status: "conditional",
     founder_label: "Web3 Extension",
-    business_rationale: "Tracks supply, allocation, vesting, liquidity, governance, smart-contract, and legal assumptions outside imported data.",
+    business_rationale: "Tracks token price, supply, allocation, vesting, liquidity, governance, smart-contract, and legal assumptions outside imported data.",
     founder_action: "Founder, legal, and tokenomics review required before public Web3 claims."
   }
 ];
@@ -664,13 +688,14 @@ export function evaluateFounderScenarioGuardrails(
 
   if (
     parameters.web3_tokenomics.network_status !== "not_applicable_internal" ||
-    parameters.web3_tokenomics.supply_model !== "not_applicable_internal"
+    parameters.web3_tokenomics.supply_model !== "not_applicable_internal" ||
+    parameters.web3_tokenomics.market.price_basis !== "not_applicable_internal"
   ) {
     issues.push({
       severity: "WARNING",
       status: "conditional",
       parameter_path: "web3_tokenomics",
-      message: "web3_tokenomics contains public-token assumptions that require founder, legal, and implementation review."
+      message: "web3_tokenomics contains public-token or market-price assumptions that require founder, legal, and implementation review."
     });
   }
 

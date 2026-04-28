@@ -40,12 +40,58 @@ const percentageFormatter = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 0
 });
 
+const tokenAmountFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 0
+});
+
 const scenarioGuardrailByKey = new Map(
   scenarioGuardrailMatrix.map((entry) => [entry.parameter_key, entry] as const)
 );
 
 const realDataModeLabel = "Imported Data Only";
 const forecastModeLabel = "Add Forecast";
+
+const simpleScenarioValueLabels: Record<string, string> = {
+  advanced_forecast: forecastModeLabel,
+  alpha_internal: "Internal ALPHA",
+  auto: "Auto",
+  capped_emission: "Capped emission",
+  cohort_projection: "Member forecast",
+  dao: "DAO",
+  externally_transferable: "Externally transferable",
+  fixed_accounting: "Fixed internal rate",
+  fixed_supply: "Fixed supply",
+  founder_admin: "Team admin",
+  future_on_chain_token: "Future on-chain token",
+  internal_credit: "Internal credit",
+  liquidity_pool: "Liquidity pool price",
+  mainnet: "Mainnet",
+  market_forecast: "Market forecast",
+  multisig_admin: "Multisig admin",
+  non_transferable: "Not transferable",
+  not_applicable_internal: "Internal only / not applicable",
+  not_on_chain: "Not on-chain",
+  not_started: "Not started",
+  off_chain_token: "Off-chain token",
+  oracle_feed: "Oracle price feed",
+  planned: "Planned",
+  platform_limited: "Platform-limited",
+  points: "Points",
+  projection_overlay: "Add projection",
+  snapshot_window: "Imported data period only",
+  token_voting: "Token voting",
+  uncapped_internal: "Uncapped internal",
+  unreviewed: "Unreviewed"
+};
+
+const tokenPriceBasisLabels: Record<string, string> = {
+  fixed_accounting: "Fixed internal rate",
+  liquidity_pool: "Liquidity pool price",
+  market_forecast: "Market forecast",
+  not_applicable_internal: "Internal only / no market price",
+  oracle_feed: "Oracle price feed"
+};
 
 function readMetadataRecord(value: unknown) {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -323,6 +369,14 @@ function formatPercent(value: number) {
   return `${percentageFormatter.format(value)}%`;
 }
 
+function formatSimpleScenarioValue(value: string) {
+  return simpleScenarioValueLabels[value] ?? value.replace(/_/g, " ");
+}
+
+function formatTokenPriceBasis(value: string) {
+  return tokenPriceBasisLabels[value] ?? formatSimpleScenarioValue(value);
+}
+
 function formatPlanningHorizon(months: number | null) {
   return months ? `${months} months` : "snapshot window";
 }
@@ -397,6 +451,26 @@ function formatNullableNumber(value: number | null | undefined, suffix = "") {
   return typeof value === "number" && Number.isFinite(value) ? `${value}${suffix}` : "not set";
 }
 
+function formatNullableCurrency(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? currencyFormatter.format(value) : "not set";
+}
+
+function formatNullableTokenAmount(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? tokenAmountFormatter.format(value)
+    : "not set";
+}
+
+function divideIfReady(numerator: number | null | undefined, denominator: number | null | undefined) {
+  return typeof numerator === "number" &&
+    typeof denominator === "number" &&
+    Number.isFinite(numerator) &&
+    Number.isFinite(denominator) &&
+    denominator > 0
+    ? numerator / denominator
+    : null;
+}
+
 function buildTokenFlowEvidence(
   parameters: ReturnType<typeof parseFounderSafeScenarioParameters>,
   summary: SummaryMetrics,
@@ -406,12 +480,44 @@ function buildTokenFlowEvidence(
   const tokenPolicy = parameters.alpha_token_policy;
   const forecastPolicy = parameters.forecast_policy;
   const web3 = parameters.web3_tokenomics;
+  const market = web3.market;
   const advancedForecastMode = isAdvancedForecastMode(parameters);
   const web3AssumptionsOpen =
     web3.network_status !== "not_applicable_internal" ||
     web3.supply_model !== "not_applicable_internal" ||
+    market.price_basis !== "not_applicable_internal" ||
     tokenPolicy.on_chain_status !== "not_on_chain" ||
     tokenPolicy.transferability === "externally_transferable";
+  const poolPrice = divideIfReady(market.liquidity_pool_usd, market.liquidity_pool_alpha);
+  const effectiveAlphaUsdPrice =
+    market.alpha_usd_price ?? (market.price_basis === "liquidity_pool" ? poolPrice : null);
+  const reserveBackingPrice = divideIfReady(market.treasury_reserve_usd, market.circulating_supply);
+  const reserveBackingPct =
+    reserveBackingPrice !== null && effectiveAlphaUsdPrice
+      ? (reserveBackingPrice / effectiveAlphaUsdPrice) * 100
+      : null;
+  const marketCap =
+    effectiveAlphaUsdPrice && market.circulating_supply
+      ? effectiveAlphaUsdPrice * market.circulating_supply
+      : null;
+  const sellPressureUsd =
+    effectiveAlphaUsdPrice && market.monthly_sell_pressure_alpha
+      ? effectiveAlphaUsdPrice * market.monthly_sell_pressure_alpha
+      : null;
+  const netMonthlyDemandUsd =
+    typeof market.monthly_buy_demand_usd === "number" && sellPressureUsd !== null
+      ? market.monthly_buy_demand_usd - sellPressureUsd
+      : null;
+  const liquidityPoolReady =
+    market.price_basis !== "liquidity_pool" ||
+    (typeof market.liquidity_pool_alpha === "number" &&
+      market.liquidity_pool_alpha > 0 &&
+      typeof market.liquidity_pool_usd === "number" &&
+      market.liquidity_pool_usd > 0);
+  const marketPriceReady =
+    market.price_basis === "not_applicable_internal" ||
+    (typeof effectiveAlphaUsdPrice === "number" && Number.isFinite(effectiveAlphaUsdPrice)) ||
+    (market.price_basis === "liquidity_pool" && liquidityPoolReady && poolPrice !== null);
   const allocationValues = [
     web3.allocation.community_pct,
     web3.allocation.treasury_pct,
@@ -454,6 +560,26 @@ function buildTokenFlowEvidence(
     caveats.push("Web3 supply, transferability, liquidity, decision rules, smart-contract, and legal assumptions still require team/legal approval.");
   }
 
+  if (market.price_basis !== "not_applicable_internal" && !marketPriceReady) {
+    caveats.push("ALPHA market price is not set, so public-token value claims are not ready.");
+  }
+
+  if (market.price_basis === "liquidity_pool" && !liquidityPoolReady) {
+    caveats.push("Liquidity pool price needs both ALPHA amount and USDC reserve before it can support a public price claim.");
+  }
+
+  if (
+    reserveBackingPct !== null &&
+    market.price_basis !== "not_applicable_internal" &&
+    reserveBackingPct < 100
+  ) {
+    caveats.push("Treasury reserve backing is below the selected ALPHA price, so $1-style language needs stronger support.");
+  }
+
+  if (netMonthlyDemandUsd !== null && netMonthlyDemandUsd < 0) {
+    caveats.push("Estimated monthly sell pressure is higher than buy demand at the selected ALPHA price.");
+  }
+
   return {
     readiness: web3AssumptionsOpen
       ? "web3_gap_open"
@@ -467,7 +593,7 @@ function buildTokenFlowEvidence(
       {
         key: "alpha_spec_lock",
         label: "ALPHA Policy",
-        value: `${tokenPolicy.classification} · ${tokenPolicy.transferability} · ${tokenPolicy.on_chain_status}`,
+        value: `${formatSimpleScenarioValue(tokenPolicy.classification)} · ${formatSimpleScenarioValue(tokenPolicy.transferability)} · ${formatSimpleScenarioValue(tokenPolicy.on_chain_status)}`,
         status:
           tokenPolicy.classification === "internal_credit" &&
           tokenPolicy.transferability === "non_transferable" &&
@@ -502,16 +628,75 @@ function buildTokenFlowEvidence(
       {
         key: "forecast_layer",
         label: "Forecast Settings",
-        value: `${summary.forecast_actual_period_count} observed months · ${summary.forecast_projected_period_count} forecast months · ${forecastPolicy.mode}`,
+        value: `${summary.forecast_actual_period_count} observed months · ${summary.forecast_projected_period_count} forecast months · ${formatSimpleScenarioValue(forecastPolicy.mode)}`,
         status: summary.forecast_projected_period_count > 0 || forecastPolicy.mode !== "snapshot_window" ? "assumption" : "ready",
         detail: "Uploaded data months and forecast months are separated in the result evidence."
       },
       {
         key: "supply_model",
         label: "Supply Model",
-        value: `${web3.supply_model} · max supply ${formatNullableNumber(web3.max_supply)}`,
+        value: `${formatSimpleScenarioValue(web3.supply_model)} · max supply ${formatNullableNumber(web3.max_supply)}`,
         status: web3.supply_model === "not_applicable_internal" ? "locked" : web3.max_supply ? "assumption" : "blocked",
         detail: "Public Web3 token plans need a clear supply policy before they can be described as final."
+      },
+      {
+        key: "token_price_basis",
+        label: "Token Price Basis",
+        value: `${formatTokenPriceBasis(market.price_basis)} · ALPHA price ${formatNullableCurrency(effectiveAlphaUsdPrice)}`,
+        status: market.price_basis === "not_applicable_internal" ? "locked" : marketPriceReady ? "assumption" : "blocked",
+        detail: "Shows whether ALPHA uses an internal rate, oracle feed, liquidity pool, or forecast price."
+      },
+      {
+        key: "market_support",
+        label: "Market Support",
+        value: `market cap ${formatNullableCurrency(marketCap)} · reserve backing ${
+          reserveBackingPct === null ? "not set" : `${percentageFormatter.format(reserveBackingPct)}%`
+        }`,
+        status:
+          market.price_basis === "not_applicable_internal"
+            ? "locked"
+            : reserveBackingPct === null
+              ? "assumption"
+              : reserveBackingPct >= 100
+                ? "ready"
+                : "assumption",
+        detail: `Reserve ${formatNullableCurrency(market.treasury_reserve_usd)} supports ${formatNullableTokenAmount(
+          market.circulating_supply
+        )} circulating ALPHA.`
+      },
+      {
+        key: "liquidity_price",
+        label: "Liquidity Pool Price",
+        value: `pool price ${formatNullableCurrency(poolPrice)} · ${formatNullableTokenAmount(
+          market.liquidity_pool_alpha
+        )} ALPHA / ${formatNullableCurrency(market.liquidity_pool_usd)}`,
+        status:
+          market.price_basis === "not_applicable_internal"
+            ? "locked"
+            : market.price_basis !== "liquidity_pool"
+            ? "assumption"
+            : liquidityPoolReady
+              ? "ready"
+              : "blocked",
+        detail: "If price comes from a pool, the pool must show enough ALPHA and USDC to calculate the implied price."
+      },
+      {
+        key: "market_pressure",
+        label: "Market Pressure",
+        value: `buy ${formatNullableCurrency(market.monthly_buy_demand_usd)} · sell ${formatNullableCurrency(
+          sellPressureUsd
+        )} · net ${formatNullableCurrency(netMonthlyDemandUsd)}`,
+        status:
+          market.price_basis === "not_applicable_internal"
+            ? "locked"
+            : netMonthlyDemandUsd === null
+              ? "assumption"
+              : netMonthlyDemandUsd >= 0
+                ? "ready"
+                : "blocked",
+        detail: `Burn ${formatNullableTokenAmount(market.monthly_burn_alpha)} ALPHA and vesting unlock ${formatNullableTokenAmount(
+          market.vesting_unlock_alpha
+        )} ALPHA per month are tracked as market assumptions.`
       },
       {
         key: "allocation_model",
@@ -600,22 +785,29 @@ function buildRunRecommendedSetup(
     items,
     "alpha_token_policy",
     "ALPHA token policy",
-    `${parameters.alpha_token_policy.classification} · ${parameters.alpha_token_policy.transferability}`,
+    `${formatSimpleScenarioValue(parameters.alpha_token_policy.classification)} · ${formatSimpleScenarioValue(parameters.alpha_token_policy.transferability)}`,
     parameters.alpha_token_policy.classification === "internal_credit" ? "locked" : "caution"
   );
   pushItem(
     items,
     "forecast_policy",
     "Forecast policy",
-    `${parameters.forecast_policy.mode} · ${parameters.forecast_policy.forecast_basis}`,
+    `${formatSimpleScenarioValue(parameters.forecast_policy.mode)} · ${formatSimpleScenarioValue(parameters.forecast_policy.forecast_basis)}`,
     parameters.forecast_policy.mode === "snapshot_window" ? "locked" : "caution"
   );
   pushItem(
     items,
     "web3_tokenomics",
     "Web3 token plan",
-    `${parameters.web3_tokenomics.network_status} · ${parameters.web3_tokenomics.supply_model}`,
+    `${formatSimpleScenarioValue(parameters.web3_tokenomics.network_status)} · ${formatSimpleScenarioValue(parameters.web3_tokenomics.supply_model)}`,
     parameters.web3_tokenomics.network_status === "not_applicable_internal" ? "locked" : "caution"
+  );
+  pushItem(
+    items,
+    "web3_tokenomics",
+    "Token price basis",
+    `${formatTokenPriceBasis(parameters.web3_tokenomics.market.price_basis)} · ${formatNullableCurrency(parameters.web3_tokenomics.market.alpha_usd_price)}`,
+    parameters.web3_tokenomics.market.price_basis === "not_applicable_internal" ? "locked" : "caution"
   );
 
   const warnings: string[] = [];
@@ -837,7 +1029,7 @@ function buildRunTruthAssumptionMatrix(
     {
       key: "alpha_token_policy",
       label: "ALPHA token policy",
-      value: `${parameters.alpha_token_policy.classification} · ${parameters.alpha_token_policy.transferability} · ${parameters.alpha_token_policy.on_chain_status}`,
+      value: `${formatSimpleScenarioValue(parameters.alpha_token_policy.classification)} · ${formatSimpleScenarioValue(parameters.alpha_token_policy.transferability)} · ${formatSimpleScenarioValue(parameters.alpha_token_policy.on_chain_status)}`,
       classification:
         parameters.alpha_token_policy.classification === "internal_credit"
           ? "locked_boundary"
@@ -847,7 +1039,7 @@ function buildRunTruthAssumptionMatrix(
     {
       key: "forecast_policy",
       label: "Forecast policy",
-      value: `${parameters.forecast_policy.mode} · ${parameters.forecast_policy.forecast_basis}`,
+      value: `${formatSimpleScenarioValue(parameters.forecast_policy.mode)} · ${formatSimpleScenarioValue(parameters.forecast_policy.forecast_basis)}`,
       classification:
         parameters.forecast_policy.mode === "snapshot_window"
           ? "locked_boundary"
@@ -855,14 +1047,25 @@ function buildRunTruthAssumptionMatrix(
       note: "Forecast periods must stay separate from imported data periods."
     },
     {
-      key: "web3_tokenomics",
-      label: "Web3 token plan",
-      value: `${parameters.web3_tokenomics.network_status} · ${parameters.web3_tokenomics.supply_model}`,
+      key: "token_price_basis",
+      label: "Token price basis",
+      value: `${formatTokenPriceBasis(parameters.web3_tokenomics.market.price_basis)} · ${formatNullableCurrency(parameters.web3_tokenomics.market.alpha_usd_price)}`,
       classification:
-        parameters.web3_tokenomics.network_status === "not_applicable_internal"
+        parameters.web3_tokenomics.market.price_basis === "not_applicable_internal"
           ? "locked_boundary"
           : "scenario_assumption",
-      note: "Supply, allocation, vesting, liquidity, decision rules, smart contract, and legal settings are assumptions, not uploaded data."
+      note: "Token price is a scenario assumption unless ALPHA stays internal-only."
+    },
+    {
+      key: "web3_tokenomics",
+      label: "Web3 token plan",
+      value: `${formatSimpleScenarioValue(parameters.web3_tokenomics.network_status)} · ${formatSimpleScenarioValue(parameters.web3_tokenomics.supply_model)}`,
+      classification:
+        parameters.web3_tokenomics.network_status === "not_applicable_internal" &&
+        parameters.web3_tokenomics.market.price_basis === "not_applicable_internal"
+          ? "locked_boundary"
+          : "scenario_assumption",
+      note: "Supply, price, allocation, vesting, liquidity, decision rules, smart contract, and legal settings are assumptions, not uploaded data."
     }
   ];
 }
@@ -950,15 +1153,16 @@ function buildDecisionPack(
       `Reserve runway: ${summary.reserve_runway_months.toFixed(2)} months`,
       `k_pc: ${parameters.k_pc}`,
       `k_sp: ${parameters.k_sp}`,
-      `Cash-out mode: ${parameters.cashout_mode}`,
+      `Cash-out mode: ${formatSimpleScenarioValue(parameters.cashout_mode)}`,
       `Sink target: ${parameters.sink_target}`,
       `Sink adoption model: ${buildSinkAdoptionValue(parameters)}`,
       `Forecast time range: ${parameters.projection_horizon_months ?? "current data range"}`,
       `New members / month: ${parameters.cohort_assumptions.new_members_per_month}`,
       `Monthly churn: ${parameters.cohort_assumptions.monthly_churn_rate_pct}%`,
       `Monthly reactivation: ${parameters.cohort_assumptions.monthly_reactivation_rate_pct}%`,
-      `ALPHA token policy: ${parameters.alpha_token_policy.classification} / ${parameters.alpha_token_policy.transferability}`,
-      `Web3 token plan: ${parameters.web3_tokenomics.network_status} / ${parameters.web3_tokenomics.supply_model}`,
+      `ALPHA token policy: ${formatSimpleScenarioValue(parameters.alpha_token_policy.classification)} / ${formatSimpleScenarioValue(parameters.alpha_token_policy.transferability)}`,
+      `Web3 token plan: ${formatSimpleScenarioValue(parameters.web3_tokenomics.network_status)} / ${formatSimpleScenarioValue(parameters.web3_tokenomics.supply_model)}`,
+      `ALPHA price basis: ${formatTokenPriceBasis(parameters.web3_tokenomics.market.price_basis)} / ${formatNullableCurrency(parameters.web3_tokenomics.market.alpha_usd_price)}`,
       ...parameters.milestone_schedule.map(
         (milestone) =>
           `Phase ${milestone.label}: starts month ${milestone.start_month}${
@@ -994,7 +1198,7 @@ function buildDecisionPack(
         ? ["Confirm Add Forecast is approved before using it in team material or the Whitepaper."]
         : []),
       "Confirm whether ALPHA remains an internal non-transferable credit or becomes a future on-chain/tokenized asset.",
-      "Confirm Web3 supply, allocation, vesting, liquidity, decision rules, smart-contract, and legal assumptions before public whitepaper claims.",
+      "Confirm Web3 price basis, supply, allocation, vesting, liquidity, decision rules, smart-contract, and legal assumptions before public whitepaper claims.",
       ...riskyMilestones.map(
         (milestone) =>
           `${milestone.label}: phase gate is risky and still needs team review before promotion.`

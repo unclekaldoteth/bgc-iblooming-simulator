@@ -68,6 +68,42 @@ test("sink adoption assumptions are allowed but flagged as forecast assumptions"
   assert.ok(issues.some((issue) => issue.parameter_path === "sink_adoption_model"));
 });
 
+test("web3 market price assumptions are stored and flagged for review", () => {
+  const parameters = scenarioParametersSchema.parse({
+    k_pc: 1,
+    k_sp: 1,
+    reward_global_factor: 1,
+    reward_pool_factor: 1,
+    cap_user_monthly: "2500",
+    cap_group_monthly: "25000",
+    sink_target: 0.3,
+    cashout_mode: "WINDOWS",
+    cashout_min_usd: 25,
+    cashout_fee_bps: 150,
+    cashout_windows_per_year: 4,
+    cashout_window_days: 7,
+    cohort_assumptions: founderSafePassiveCohortAssumptions,
+    projection_horizon_months: null,
+    milestone_schedule: [],
+    web3_tokenomics: {
+      market: {
+        price_basis: "fixed_accounting",
+        alpha_usd_price: 1,
+        circulating_supply: 1_000_000,
+        treasury_reserve_usd: 1_000_000,
+        monthly_buy_demand_usd: 25_000,
+        monthly_sell_pressure_alpha: 10_000
+      }
+    }
+  });
+  const issues = evaluateFounderScenarioGuardrails(parameters);
+
+  assert.equal(parameters.web3_tokenomics.market.price_basis, "fixed_accounting");
+  assert.equal(parameters.web3_tokenomics.market.alpha_usd_price, 1);
+  assert.equal(issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.ok(issues.some((issue) => issue.parameter_path === "web3_tokenomics"));
+});
+
 test("founder-safe guardrails reject generic reward factors and cohort projections", () => {
   const parameters = scenarioParametersSchema.parse({
     k_pc: 1,

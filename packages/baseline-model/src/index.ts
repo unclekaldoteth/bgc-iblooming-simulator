@@ -438,6 +438,18 @@ export function getBaselineScenarioDefaults(model: BaselineModelRuleset) {
         reserve_pct: null,
         launch_pool_usd: null
       },
+      market: {
+        price_basis: "not_applicable_internal",
+        alpha_usd_price: null,
+        circulating_supply: null,
+        treasury_reserve_usd: null,
+        liquidity_pool_alpha: null,
+        liquidity_pool_usd: null,
+        monthly_buy_demand_usd: null,
+        monthly_sell_pressure_alpha: null,
+        monthly_burn_alpha: null,
+        vesting_unlock_alpha: null
+      },
       governance: {
         mode: "founder_admin",
         voting_token_enabled: false
