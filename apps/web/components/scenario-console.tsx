@@ -1092,7 +1092,7 @@ export function ScenarioConsole({ scenarios, snapshots, baselineModels, user }: 
                         <NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, k_pc: val } }))} step="0.01" value={p.k_pc} />
                       </label>
                       <label className="field">
-                        <span>SP to ALPHA multiplier</span>
+                        <span>SP / Sales Point to ALPHA multiplier</span>
                         <NumericInput disabled={!canWrite || isPending} min="0" onChange={(val) => setFormState(c => ({ ...c, parameters: { ...c.parameters, k_sp: val } }))} step="0.01" value={p.k_sp} />
                       </label>
                     </div>

@@ -179,6 +179,16 @@ function isActiveImportStatus(status: string | null | undefined) {
   return status === "QUEUED" || status === "RUNNING";
 }
 
+function formatImportRowSummary(snapshot: SnapshotRecord) {
+  const run = snapshot.latestImportRun;
+  if (!run) return null;
+
+  const sourceRows = run.rowCountRaw ?? 0;
+  const simulationRows = run.rowCountImported ?? snapshot.importedFactCount;
+
+  return `Source rows read: ${sourceRows.toLocaleString()} · Simulation rows created: ${simulationRows.toLocaleString()}`;
+}
+
 function getProgressSteps(snapshot: SnapshotRecord) {
   const created = true;
   const imported = snapshot.importedFactCount > 0 || snapshot.latestImportRun?.status === "COMPLETED";
@@ -746,7 +756,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                     {snapshot.dateFrom.slice(0, 10)} → {snapshot.dateTo.slice(0, 10)}
                   </span>
                   <span>{snapshot.sourceSystems.join(", ")}</span>
-                  <span>{snapshot.importedFactCount.toLocaleString()} rows imported</span>
+                  <span>{snapshot.importedFactCount.toLocaleString()} simulation rows</span>
                   <span>{snapshot.scenarioRefCount} scenario links · {snapshot.runRefCount} run links</span>
                 </div>
 
@@ -868,7 +878,7 @@ export function SnapshotConsole({ snapshots, blobUploadsEnabled, cleanupReport, 
                 {snapshot.latestImportRun ? (
                   <p className="muted" style={{ fontSize: "0.75rem", marginTop: "0.35rem" }}>
                     Import: <span className={`badge ${snapshot.latestImportRun.status === "COMPLETED" ? "badge--candidate" : snapshot.latestImportRun.status === "FAILED" ? "badge--rejected" : "badge--info"}`} style={{ fontSize: "0.65rem" }}>{getImportStatusLabel(snapshot.latestImportRun.status)}</span>
-                    {" "}({snapshot.latestImportRun.rowCountImported ?? 0}/{snapshot.latestImportRun.rowCountRaw ?? 0} rows)
+                    {" "}{formatImportRowSummary(snapshot)}
                   </p>
                 ) : null}
 

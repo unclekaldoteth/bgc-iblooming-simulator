@@ -15,20 +15,49 @@ Prinsip membaca dokumen ini:
 | `Snapshot` | Satu versi dataset historis yang dipakai untuk simulasi. | Anggap sebagai "paket data historis" yang menjadi input run. |
 | `Name` | Nama dataset/snapshot. | Biasanya dipakai untuk membedakan periode atau batch data. |
 | `Source systems` | Sistem asal data, misalnya `bgc` dan `iblooming`. | Menjelaskan data ini dikumpulkan dari sistem mana saja. |
+| `File type` | Cara engine membaca file snapshot. | `Monthly CSV` untuk data bulanan; `Full Detail CSV` untuk CSV detail dengan `record_type`; `Full Detail JSON`, `Full Detail Bundle`, dan `Hybrid Data` untuk data yang lebih terstruktur. |
+| `Check method` | Cara sistem mengecek snapshot. | `Monthly data` untuk Monthly CSV, `Event data` untuk full-detail, `Hybrid check` untuk data campuran. |
 | `Date range` | Rentang waktu data historis yang dicakup snapshot. | Menjawab "data ini periode kapan?" |
 | `CSV upload` | File CSV yang diunggah sebagai sumber data. | Input file mentah untuk import. |
 | `File URI` | Lokasi file sumber, misalnya `file://`, `s3://`, atau `https://`. | Menjawab "file sumbernya ada di mana?" |
 | `Record count` | Jumlah baris data yang dicatat saat snapshot didaftarkan. | Ini metadata awal, bukan bukti jumlah row yang berhasil diimport. |
 | `Validation status` | Status apakah snapshot sudah layak dipakai atau belum. | Fokus utama: apakah statusnya sudah `APPROVED` atau belum. |
 | `Validation issues` | Masalah yang ditemukan saat pengecekan metadata snapshot. | Kalau ada issue, snapshot belum siap dipakai. |
-| `Import` | Status proses pembacaan CSV ke canonical facts. | Menunjukkan apakah file sudah benar-benar diproses ke sistem. |
+| `Import` | Status proses pembacaan file ke data engine. | Menunjukkan apakah file sudah benar-benar diproses ke sistem. |
 | `Import issues` | Masalah yang ditemukan saat parsing/validasi CSV. | Biasanya terkait format kolom, nilai angka, boolean, atau duplikasi. |
 | `rowCountRaw` | Jumlah baris mentah yang dibaca dari file CSV. | Ini jumlah row asli dari file sumber. |
 | `rowCountImported` | Jumlah baris yang berhasil lolos import. | Ini jumlah row yang benar-benar berhasil diproses. |
-| `importedFactCount` | Jumlah canonical facts aktif yang saat ini tersimpan di sistem. | Ini angka yang paling dekat dengan "berapa data aktif yang benar-benar siap dipakai simulasi sekarang". |
+| `importedFactCount` | Jumlah row data aktif yang saat ini tersimpan di engine. | Ini angka yang paling dekat dengan "berapa data aktif yang benar-benar siap dipakai simulasi sekarang". |
 | `Approve` | Persetujuan akhir agar snapshot bisa dipakai untuk run. | Run tidak bisa jalan jika snapshot belum `APPROVED`. |
 | `Archive` | Menyembunyikan snapshot dari tampilan aktif tanpa menghapus data historis. | Dipakai untuk merapikan registry, bukan menghemat storage secara langsung. |
 | `Storage Cleanup Policy` | Ringkasan kandidat cleanup storage untuk snapshot/import lama. | Ini panel maintenance di bawah daftar snapshot, bukan fokus utama workflow dan bukan aksi delete otomatis. |
+
+### File type di `Snapshots`
+
+| File type | Arti meeting version |
+| --- | --- |
+| `Monthly CSV` | CSV paling sederhana. Satu row berarti satu member dalam satu bulan. Bisa dipakai simulasi, tetapi tidak cukup untuk membuat semua Source Detail available. |
+| `Full Detail CSV` | CSV biasa dengan kolom `record_type`. Ini pilihan terbaik untuk tim non-teknis yang ingin semua Source Detail bisa lengkap lewat CSV. |
+| `Full Detail JSON` | Data detail seperti Full Detail CSV, tetapi formatnya JSON. Lebih cocok untuk export dari sistem atau engineering pipeline. |
+| `Full Detail Bundle` | Paket beberapa source file yang sudah dimapping ke model detail engine. |
+| `Hybrid Data` | Campuran data detail dan data bulanan aggregate. Bisa dipakai, tetapi caveat tetap perlu dibaca kalau Source Detail belum lengkap. |
+
+### `record_type` di Full Detail CSV
+
+| `record_type` | Arti singkat |
+| --- | --- |
+| `member` | Orang/account internal yang dipakai simulator. |
+| `member_alias` | ID orang tersebut di source system, misalnya ID BGC atau ID iBLOOMING. |
+| `role_history` | Riwayat status/member level dari waktu ke waktu. |
+| `offer` | Produk, paket, atau offer yang menghasilkan value. |
+| `business_event` | Kejadian bisnis, misalnya join, purchase, sale, pool funding, atau reward accrual. |
+| `pc_entry` | Pergerakan PC. |
+| `sp_entry` | Pergerakan SP. |
+| `reward_obligation` | Reward yang menjadi obligation untuk member. |
+| `pool_entry` | Funding, allocation, atau distribution dari pool. |
+| `cashout_event` | Event cash-out, termasuk request, approve, paid, atau rejected. |
+| `qualification_window` | Periode waktu qualification, misalnya WEC 60-day window. |
+| `qualification_status` | Status qualification member dalam periode tertentu. |
 
 ### Status snapshot yang penting
 
@@ -64,7 +93,7 @@ Prinsip membaca dokumen ini:
 | `Started` / `Completed` | Waktu mulai dan selesai run. | Menjelaskan kapan run dijalankan. |
 | `Flags` | Peringatan ketika hasil run melewati threshold tertentu. | Tidak selalu berarti gagal, tapi berarti perlu perhatian. |
 | `Recommendation` | Ringkasan kesimpulan decision pack. | Ini kalimat singkat yang menjawab apakah skenario layak dipertimbangkan. |
-| `Evaluated Scenario Basis` | Ringkasan setup skenario yang sedang dinilai. | Ini bukan truth historis; ini basis evaluasi untuk run yang sedang dibahas. |
+| `Evaluated Scenario Basis` | Ringkasan setup skenario yang sedang dinilai. | Ini bukan data historis; ini basis evaluasi untuk run yang sedang dibahas. |
 | `Blockers / Rejection Reasons` | Kondisi atau setup yang membuat skenario tertahan. | Menjelaskan kenapa skenario tidak ideal atau perlu revisi. |
 
 ## Halaman `Result Ref`

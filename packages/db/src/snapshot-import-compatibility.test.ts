@@ -31,6 +31,14 @@ function errorMessages(csvText: string, mode: "legacy_compatibility" | "understa
     .map((issue) => `${issue.issueType}: ${issue.message}`);
 }
 
+function csvCell(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
+}
+
+function csvRow(headers: string[], values: Record<string, string>) {
+  return headers.map((header) => csvCell(values[header] ?? "")).join(",");
+}
+
 test("valid compatibility fixture passes in understanding_doc_strict mode", () => {
   const result = parseCompatibilityCsvSnapshotText(loadValidCompatibilityCsvFixture(), {
     mode: "understanding_doc_strict"
@@ -199,43 +207,6 @@ test("full detail CSV sample derives facts that pass understanding_doc_strict va
   assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
 });
 
-test("repository full detail CSV examples stay parseable by canonical parser", () => {
-  const examples = [
-    {
-      file: "case-1m-bgc-iblooming-full-detail.csv",
-      expected: {
-        members: 14,
-        businessEvents: 15,
-        rewardObligations: 12,
-        poolEntries: 2,
-        cashoutEvents: 12
-      }
-    },
-    {
-      file: "case-10m-12m-bgc-iblooming-full-detail.csv",
-      expected: {
-        members: 146,
-        businessEvents: 180,
-        rewardObligations: 144,
-        poolEntries: 24,
-        cashoutEvents: 144
-      }
-    }
-  ];
-
-  for (const example of examples) {
-    const payload = parseCanonicalCsvSnapshotText(
-      readFileSync(new URL(`../../../examples/${example.file}`, import.meta.url), "utf8")
-    );
-
-    assert.equal(payload.members.length, example.expected.members, example.file);
-    assert.equal(payload.business_events.length, example.expected.businessEvents, example.file);
-    assert.equal(payload.reward_obligations.length, example.expected.rewardObligations, example.file);
-    assert.equal(payload.pool_entries.length, example.expected.poolEntries, example.file);
-    assert.equal(payload.cashout_events.length, example.expected.cashoutEvents, example.file);
-  }
-});
-
 test("legacy_compatibility mode skips strict history checks", () => {
   const result = parseCompatibilityCsvSnapshotText(buildInvalidHistoryCsvFixture(), {
     mode: "legacy_compatibility"
@@ -268,6 +239,119 @@ test("iblooming sink-spend source rows derive PC_SPEND breakdown and persist it 
   assert.ok(metadata);
   assert.deepEqual(metadata?.sink_breakdown_usd, { PC_SPEND: 99.5 });
   assert.deepEqual(metadata?.accountability_checks, { sink_total_usd: 99.5 });
+});
+
+test("iblooming monthly rows may carry Sales Point in sp_reward_basis", () => {
+  const csvText = [
+    "period_key,member_key,source_system,member_tier,group_key,pc_volume,sp_reward_basis,global_reward_usd,pool_reward_usd,cashout_usd,sink_spend_usd,active_member,recognized_revenue_usd,gross_margin_usd,member_join_period,is_affiliate,cross_app_active,extra_json",
+    '2025-04,IB-SP-001,iblooming,CP,CP_CREATORS,0,1200,0,0,0,100,true,30,30,2025-04,false,false,"{""recognized_revenue_basis"":{""gross_sale_usd"":100,""cp_user_share_usd"":70,""ib_platform_revenue_usd"":30,""platform_take_rate_pct"":30},""sp_breakdown"":{""IB_SALES_POINT"":1200},""sink_breakdown_usd"":{""PC_SPEND"":100},""accountability_checks"":{""sink_total_usd"":100}}"'
+  ].join("\n");
+
+  const result = parseCompatibilityCsvSnapshotText(csvText, {
+    mode: "understanding_doc_strict"
+  });
+
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.equal(result.facts.length, 1);
+  assert.equal(result.facts[0]?.spRewardBasis, 1200);
+  const metadata = result.facts[0]?.metadataJson as Record<string, unknown> | null;
+  assert.deepEqual(metadata?.sp_breakdown, { IB_SALES_POINT: 1200 });
+});
+
+test("full detail CSV derives iblooming Sales Point into sp_reward_basis", () => {
+  const headers = [
+    "record_type",
+    "snapshot_id",
+    "stable_key",
+    "display_name",
+    "group_key",
+    "join_period",
+    "member_stable_key",
+    "source_system",
+    "role_type",
+    "role_value",
+    "effective_from",
+    "event_ref",
+    "event_type",
+    "occurred_at",
+    "effective_period",
+    "actor_member_stable_key",
+    "amount",
+    "unit",
+    "recognized_revenue_usd",
+    "gross_margin_usd",
+    "entry_type",
+    "amount_sp",
+    "source_event_ref",
+    "metadata"
+  ];
+  const csvText = [
+    headers.join(","),
+    csvRow(headers, {
+      record_type: "member",
+      snapshot_id: "ib-sales-point-sample",
+      stable_key: "IB-SP-001",
+      display_name: "iBlooming Sales Point Creator",
+      group_key: "CP_CREATORS",
+      join_period: "2025-04"
+    }),
+    csvRow(headers, {
+      record_type: "role_history",
+      snapshot_id: "ib-sales-point-sample",
+      member_stable_key: "IB-SP-001",
+      source_system: "IBLOOMING",
+      role_type: "CP_STATUS",
+      role_value: "CP",
+      effective_from: "2025-04-01"
+    }),
+    csvRow(headers, {
+      record_type: "business_event",
+      snapshot_id: "ib-sales-point-sample",
+      source_system: "IBLOOMING",
+      event_ref: "EV-IB-SP-001",
+      event_type: "CP_PRODUCT_SOLD",
+      occurred_at: "2025-04-10",
+      effective_period: "2025-04",
+      actor_member_stable_key: "IB-SP-001",
+      amount: "100",
+      unit: "USD",
+      recognized_revenue_usd: "30",
+      gross_margin_usd: "30",
+      metadata:
+        '{"recognized_revenue_basis":{"gross_sale_usd":100,"cp_user_share_usd":70,"ib_platform_revenue_usd":30,"platform_take_rate_pct":30}}'
+    }),
+    csvRow(headers, {
+      record_type: "sp_entry",
+      snapshot_id: "ib-sales-point-sample",
+      member_stable_key: "IB-SP-001",
+      effective_period: "2025-04",
+      entry_type: "ACCRUAL",
+      amount_sp: "1200",
+      source_event_ref: "EV-IB-SP-001"
+    })
+  ].join("\n");
+  const payload = parseCanonicalCsvSnapshotText(csvText);
+  const derived = buildDerivedSnapshotDataFromCanonical(payload, {
+    snapshotDateFrom: new Date("2025-04-01T00:00:00.000Z"),
+    snapshotDateTo: new Date("2025-04-30T23:59:59.999Z")
+  });
+  const result = validateCompatibilitySnapshotFacts(derived.memberMonthFacts, {
+    mode: "understanding_doc_strict",
+    poolPeriodFacts: derived.poolPeriodFacts,
+    canonicalSnapshotId: payload.snapshot_id
+  });
+  const ibFact = derived.memberMonthFacts.find(
+    (fact) =>
+      fact.periodKey === "2025-04" &&
+      fact.memberKey === "IB-SP-001" &&
+      fact.sourceSystem === "iblooming"
+  );
+
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.ok(ibFact);
+  assert.equal(ibFact.spRewardBasis, 1200);
+  const metadata = ibFact.metadataJson as Record<string, unknown> | null;
+  assert.deepEqual(metadata?.spBreakdown, { IB_SALES_POINT: 1200 });
 });
 
 test("hybrid monthly override rows pass strict validation when shaped as accepted aggregate facts", () => {

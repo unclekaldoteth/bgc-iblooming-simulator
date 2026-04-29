@@ -91,7 +91,7 @@ Required columns are the first 12 columns. The last 6 columns are optional but r
 | `member_tier` | Yes, can be blank | Member level or tier for that month, for example `PATHFINDER`. |
 | `group_key` | Yes, can be blank | Group/cohort label, for example `FOUNDERS` or `CP_CREATORS`. |
 | `pc_volume` | Yes | PC amount for that member-month. PC is product/business activity value. |
-| `sp_reward_basis` | Yes | SP amount used as reward basis. SP is reward-right or incentive value. |
+| `sp_reward_basis` | Yes | Reward-basis points for the row. For BGC this is SP/LTS. For iBLOOMING this may be Sales Point from product or channel activity. |
 | `global_reward_usd` | Yes | Direct/global reward value in USD-equivalent. |
 | `pool_reward_usd` | Yes | Pool-based reward value in USD-equivalent. |
 | `cashout_usd` | Yes | Cash-out amount paid or expected for that member-month. Put `0` when there is no cash-out. |
@@ -105,6 +105,36 @@ Required columns are the first 12 columns. The last 6 columns are optional but r
 | `extra_json` | Optional | Extra structured notes as JSON. Use this for breakdowns, source notes, and accountability checks. |
 
 Indonesian note: `cashout_usd` wajib sebagai kolom di Monthly CSV. Kalau tidak ada cash-out, isi `0`, bukan dikosongkan.
+
+## Monthly CSV Business Source And Calculation Basis
+
+Monthly CSV rows are already summarized. That means the spreadsheet owner is responsible for providing the monthly totals, and the engine checks whether those totals still make business sense.
+
+| Column | Business source | How the current engine reads it |
+| --- | --- | --- |
+| `pc_volume` | BGC affiliate entry or upgrade activity that grants PC. | For BGC rows with `extra_json.recognized_revenue_basis.entry_fee_usd`, the engine validates the PC against the BGC tier rule table below. In practice the current accepted BGC tiers use `entry_fee_usd x 100`, for example `$100 -> 10,000 PC`. For iBLOOMING rows, PC must be `0` because PC is treated as a BGC-only unit. |
+| `sp_reward_basis` | Reward-basis points created by the business source. BGC can create SP/LTS from affiliate entry or upgrade rules. iBLOOMING can create Sales Point from product or channel activity. | For BGC rows with an entry-fee basis, the engine validates SP against the BGC tier rule table. For iBLOOMING rows, the engine now allows Sales Point in this field; use `extra_json.sp_breakdown`, for example `{"IB_SALES_POINT": 1200}`, so the source of the points is clear. |
+| `global_reward_usd` | Direct/global rewards owed or distributed to members, such as BGC RR/GR or iBLOOMING rebate reward families. | The engine treats this as imported reward obligation value. If non-zero, `extra_json.global_reward_breakdown_usd` should explain which reward family produced it. |
+| `pool_reward_usd` | Pool distribution value paid or allocated to members. | The engine treats this as imported pool reward value. If non-zero, `extra_json.pool_reward_breakdown_usd` should explain which pool produced it. |
+| `cashout_usd` | Cash-out that was paid, or approved if payment detail is not separated yet. | This is actual cash leaving the ecosystem. It is separate from reward accrual and separate from internal ALPHA use. Put `0` when there is no cash-out. |
+| `sink_spend_usd` | Internal-use spend inside the ecosystem, for example paying for an iBLOOMING/iBoomie product with ALPHA/PC. | This feeds Actual ALPHA Used. It is not company revenue by itself and it is not cash paid out. For iBLOOMING sales, the current compatibility rule expects this to match gross sale value when the row carries gross sale basis. |
+| `recognized_revenue_usd` | Revenue the company recognizes from the event or monthly row. | For BGC this usually comes from entry/upgrade fee basis. For iBLOOMING this should be platform revenue, currently validated as `30%` of gross sale when gross sale basis is provided. |
+| `gross_margin_usd` | Gross margin after direct cost, if the source system or finance team knows it. | The engine does not invent gross margin when it is blank. It uses the provided value for evidence and reporting when available. |
+| `active_member`, `member_tier`, `member_join_period`, `is_affiliate`, `cross_app_active` | Member status and lifecycle data from CRM, membership, or role history. | These fields affect activity multipliers, lifecycle reading, and eligibility-style interpretation in scenario runs. |
+
+### Current BGC Tier Rule Table
+
+These are the BGC tier values the engine currently accepts for Monthly CSV validation.
+
+| BGC tier | Entry fee basis | PC volume | SP reward basis | Business note |
+| --- | ---: | ---: | ---: | --- |
+| `PATHFINDER` | `$100` | `10,000` | `70` | Entry-level BGC affiliate package. |
+| `VOYAGER` | `$500` | `50,000` | `350` | Higher BGC affiliate package. |
+| `EXPLORER` | `$1,725` | `172,500` | `1,207` | Higher BGC affiliate package. SP is the engine's accepted integer value. |
+| `PIONEER` | `$2,875` | `287,500` | `2,012` | Higher BGC affiliate package. SP is the engine's accepted integer value. |
+| `SPECIAL` | `$11,500` | `1,150,000` | `8,050` | Highest accepted BGC package in the current rule table. |
+
+Simple answer for PC: yes, for the current BGC tier table `pc_volume` is effectively `entry_fee_usd x 100`. But the engine validates it as a locked business tier rule, so the safer way to explain it is: **PC comes from the BGC affiliate package rule, and today that rule maps each accepted entry fee to PC at 100 PC per USD.**
 
 ## Full Detail CSV Basic Idea
 
@@ -185,9 +215,9 @@ Use extra `member_alias` rows only when the same internal member has more than o
 | `label` | `offer` | Human-readable offer name. |
 | `price_fiat_usd` | `offer` | Offer price in USD. |
 | `pc_grant` | `offer` | Simple PC amount granted by this offer. |
-| `sp_accrual` | `offer` | Simple SP amount accrued by this offer. |
+| `sp_accrual` | `offer` | Simple SP / Sales Point amount accrued by this offer. |
 | `pc_grant_rule` | `offer` | Advanced JSON object for PC grant logic. Overrides `pc_grant` when filled. |
-| `lts_generation_rule` | `offer` | Advanced JSON object for SP/LTS generation logic. Overrides `sp_accrual` when filled. |
+| `lts_generation_rule` | `offer` | Advanced JSON object for SP/LTS or Sales Point generation logic. Overrides `sp_accrual` when filled. |
 | `reward_rule_reference` | `offer` | Name or reference for the business rule behind the offer reward. |
 | `event_ref` | `business_event` | Unique ID for a business event. Other rows can point to it with `source_event_ref`. |
 | `event_type` | `business_event`, `cashout_event` | Kind of event that happened. Business events and cash-out events use different allowed values. |
@@ -203,7 +233,7 @@ Use extra `member_alias` rows only when the same internal member has more than o
 | `gross_margin_usd` | `business_event` | Gross margin from this event if known. |
 | `entry_type` | `pc_entry`, `sp_entry`, `pool_entry` | Ledger movement type. Values depend on the row type. |
 | `amount_pc` | `pc_entry` | PC amount for one PC ledger movement. |
-| `amount_sp` | `sp_entry` | SP amount for one SP ledger movement. |
+| `amount_sp` | `sp_entry` | SP / Sales Point amount for one reward-basis ledger movement. |
 | `sink_spend_usd` | `pc_entry` | USD value of internal ecosystem use. Recommended when `entry_type=SPEND`. |
 | `reward_source_code` | `reward_obligation` | Reward family code, for example `BGC_RR` or `IB_CPR`. |
 | `distribution_cycle` | `reward_obligation`, `pool_entry` | How often the reward or pool distributes. |
@@ -232,6 +262,26 @@ Use extra `member_alias` rows only when the same internal member has more than o
 | `status` | `qualification_status` | Qualification status value. |
 | `source_window_key` | `qualification_status` | Link back to `qualification_window.window_key`. |
 | `metadata` | All | Optional JSON object for source notes, row IDs, or extra details. |
+
+## Full Detail CSV To Monthly Simulation Rows
+
+Full Detail CSV contains source-detail rows. During import, the engine derives monthly simulation rows from those details.
+
+| Source row | Business meaning | What it becomes in monthly simulation |
+| --- | --- | --- |
+| `member` | The internal person/account used by the simulator. | Provides member identity, group, and join period. |
+| `member_alias` | The member's ID in BGC, iBLOOMING, wallet, or another source system. | Improves source traceability. It does not create PC, revenue, or reward by itself. |
+| `role_history` | Member status over time, such as affiliate level or CP status. | Sets active member status, tier/status, and active role for each period. |
+| `offer` | Product/package definition, including price, PC grant, and SP accrual rule. | Defines the business product. It does not count as monthly activity unless there is a matching event or ledger row. |
+| `business_event` | A real business event: join, upgrade, product sale, pool funding, reward accrual, or qualification event. | Feeds recognized revenue, gross margin, sink spend, and activity period depending on event type and metadata. |
+| `pc_entry` with `GRANT` or `ADJUSTMENT` | PC was granted or adjusted. | Adds to `pc_volume`. |
+| `pc_entry` with `SPEND` | PC/ALPHA was used inside the ecosystem. | Adds to `sink_spend_usd`. If `metadata.sink_spend_usd` is missing, the engine defaults to `amount_pc / 100`. |
+| `sp_entry` with `ACCRUAL` or `ADJUSTMENT` | Reward-basis points were created or adjusted. For BGC this usually means SP/LTS. For iBLOOMING this can mean Sales Point. | Adds to `sp_reward_basis`. When the linked source event is iBLOOMING, the derived breakdown uses `IB_SALES_POINT` or `IB_SALES_POINT_ADJUSTMENT`. |
+| `reward_obligation` | Reward owed, eligible, or distributed to a member. | Adds compatible USD reward value to `global_reward_usd`, grouped by `reward_source_code`. Cancelled obligations are ignored. |
+| `pool_entry` with a recipient and distribution type | Pool distribution to a member. | Adds USD pool distribution value to `pool_reward_usd`. Pool funding rows alone do not become member reward. |
+| `cashout_event` with `PAID` | Cash-out actually paid. | Adds to `cashout_usd`. |
+| `cashout_event` with `APPROVED` and no matching `PAID` row | Approved cash-out when payment detail is not separated. | Adds to `cashout_usd` so the simulator can still reflect expected payout. |
+| `qualification_window` and `qualification_status` | Qualification windows and status history, such as WEC or CPR. | Improves source-detail checks and eligibility evidence. It does not create revenue by itself. |
 
 ## Columns With Fixed Choices
 

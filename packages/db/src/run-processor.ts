@@ -966,7 +966,7 @@ function buildRunTruthAssumptionMatrix(
       label: "k_sp",
       value: String(parameters.k_sp),
       classification: "scenario_lever",
-      note: "Editable SP/LTS-to-ALPHA conversion."
+      note: "Editable SP / Sales Point-to-ALPHA conversion."
     },
     {
       key: "caps",

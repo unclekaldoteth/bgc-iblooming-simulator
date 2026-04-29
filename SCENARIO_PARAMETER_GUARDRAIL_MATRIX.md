@@ -14,7 +14,7 @@ Engineering note: the internal code still uses `founder_safe` and `advanced_fore
 | Parameter | Status | Why |
 | --- | --- | --- |
 | `k_pc` | Allowed | ALPHA conversion overlay on top of imported `PC` data. |
-| `k_sp` | Allowed | ALPHA conversion overlay on top of imported `SP/LTS` data. |
+| `k_sp` | Allowed | ALPHA conversion overlay on top of imported `SP`, `LTS`, or iBLOOMING Sales Point data. |
 | `cap_user_monthly` | Allowed | Monthly ALPHA issuance cap; does not rewrite business events. |
 | `cap_group_monthly` | Allowed | Monthly ALPHA issuance cap at group level; does not rewrite business events. |
 

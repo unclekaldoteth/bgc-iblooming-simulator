@@ -649,6 +649,20 @@ function isHybridMonthlyOverrideRow(row: ParsedCompatibilityRow) {
   return getRowSemantics(row.metadata, row.rowRef) === "hybrid_monthly_override_fact";
 }
 
+function isAggregateCompatibilityRow(row: ParsedCompatibilityRow) {
+  if (!row.metadata) {
+    return false;
+  }
+
+  const value = getMetadataFieldValue(row.metadata, "aggregate_row", ["aggregateRow"]);
+
+  if (typeof value === "undefined" || value === null) {
+    return false;
+  }
+
+  return parseMetadataBoolean(value, "aggregate_row", row.rowRef);
+}
+
 function validateHybridMonthlyOverrideRow(row: ParsedCompatibilityRow) {
   const sourceSystem = normalizeSourceSystemCode(row.fact.sourceSystem);
   const memberTier = normalizeMemberTier(row.fact.memberTier);
@@ -1333,6 +1347,7 @@ function parsePoolShareSnapshot(
 function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
   const sourceSystem = normalizeSourceSystemCode(row.fact.sourceSystem);
   const memberTier = normalizeMemberTier(row.fact.memberTier);
+  const isAggregateRow = isAggregateCompatibilityRow(row);
   const statusState = getStatusState(row.metadata, row.rowRef);
   const activeRoles = getActiveRoleTags(row.metadata, row.rowRef);
   const activeQualifications = getActiveQualificationTags(row.metadata, row.rowRef);
@@ -1429,12 +1444,6 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       throw new Error(`pc_volume must be 0 for iblooming rows because PC is a BGC-only unit (${row.rowRef}).`);
     }
 
-    if (row.fact.spRewardBasis > 0) {
-      throw new Error(
-        `sp_reward_basis must be 0 for iblooming rows because SP/LTS is a BGC-only unit (${row.rowRef}).`
-      );
-    }
-
     if (memberTier !== null && !isKnownIbTier(memberTier)) {
       throw new Error(`member_tier must be blank, CP, or EXECUTIVE_CP for iblooming rows (${row.rowRef}).`);
     }
@@ -1511,7 +1520,7 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       assertCloseEnough(30, platformTakeRatePct, "platform_take_rate_pct", row.rowRef);
       assertCloseEnough(grossSaleUsd, row.fact.sinkSpendUsd, "sink_spend_usd", row.rowRef);
 
-      if (globalRewardBreakdown && "IB_LR" in globalRewardBreakdown) {
+      if (!isAggregateRow && globalRewardBreakdown && "IB_LR" in globalRewardBreakdown) {
         assertCloseEnough(
           round2(ibPlatformRevenueUsd * 0.1),
           parseMetadataNumber(globalRewardBreakdown.IB_LR, "global_reward_breakdown_usd.IB_LR", row.rowRef),
@@ -1520,7 +1529,7 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
         );
       }
 
-      if (globalRewardBreakdown && "IB_MIRACLE_CASH" in globalRewardBreakdown) {
+      if (!isAggregateRow && globalRewardBreakdown && "IB_MIRACLE_CASH" in globalRewardBreakdown) {
         assertCloseEnough(
           round2(ibPlatformRevenueUsd * 0.01),
           parseMetadataNumber(
@@ -1533,7 +1542,7 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
         );
       }
 
-      if (globalRewardBreakdown && "IB_CPR" in globalRewardBreakdown) {
+      if (!isAggregateRow && globalRewardBreakdown && "IB_CPR" in globalRewardBreakdown) {
         const hasYear1 = activeQualifications.includes(CPR_YEAR_1_TAG);
         const hasYear2 = activeQualifications.includes(CPR_YEAR_2_TAG);
 
@@ -1561,6 +1570,10 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
 
 function validateCountAwareCompatibilityContract(row: ParsedCompatibilityRow) {
   if (!row.metadata) {
+    return;
+  }
+
+  if (isAggregateCompatibilityRow(row)) {
     return;
   }
 
@@ -2308,6 +2321,10 @@ function validatePoolConservation(rows: ParsedCompatibilityRow[]) {
   >();
 
   for (const row of rows) {
+    if (isAggregateCompatibilityRow(row)) {
+      continue;
+    }
+
     if (!row.metadata) {
       continue;
     }

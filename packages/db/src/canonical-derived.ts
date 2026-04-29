@@ -320,6 +320,61 @@ function addUniqueMetadataValue(
   }
 }
 
+function mergeCompatibilityMetadataValue(
+  metadata: Record<string, unknown>,
+  fieldKey: string,
+  value: unknown
+) {
+  if (typeof value === "undefined" || value === null || value === "") {
+    return;
+  }
+
+  const existing = metadata[fieldKey];
+
+  if (isRecord(value) && isRecord(existing)) {
+    metadata[fieldKey] = {
+      ...existing,
+      ...value
+    };
+    return;
+  }
+
+  if (Array.isArray(value) && Array.isArray(existing)) {
+    const nextValues = value.filter((item): item is string => typeof item === "string");
+    const existingValues = existing.filter((item): item is string => typeof item === "string");
+    metadata[fieldKey] = [...new Set([...existingValues, ...nextValues])];
+    return;
+  }
+
+  metadata[fieldKey] = value;
+}
+
+function copyCompatibilityMetadataFields(
+  metadata: Record<string, unknown>,
+  sourceMetadata: unknown
+) {
+  const source = readMetadataRecord(sourceMetadata);
+
+  if (!source) {
+    return;
+  }
+
+  const fieldAliases = [
+    ["aggregate_row", "aggregateRow"],
+    ["source_categories", "sourceCategories"],
+    ["row_semantics", "rowSemantics"],
+    ["source_of_truth_reference", "sourceOfTruthReference"],
+    ["recognized_revenue_basis", "recognizedRevenueBasis"],
+    ["gross_margin_basis", "grossMarginBasis"],
+    ["accountability_checks", "accountabilityChecks"]
+  ] as const;
+
+  for (const [fieldKey, aliasKey] of fieldAliases) {
+    const value = source[fieldKey] ?? source[aliasKey];
+    mergeCompatibilityMetadataValue(metadata, fieldKey, value);
+  }
+}
+
 function applyRewardCountMetadata(
   metadata: Record<string, unknown>,
   rewardSourceCode: string,
@@ -714,6 +769,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(actorKey, event.source_system));
+    copyCompatibilityMetadataFields(row.metadata, event.metadata);
 
     if (REVENUE_EVENT_TYPES.has(event.event_type)) {
       const recognizedRevenueUsd =
@@ -767,6 +823,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(entry.member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, entry.metadata);
 
     if (entry.entry_type === "GRANT" || entry.entry_type === "ADJUSTMENT") {
       row.pcVolume = roundMetric(row.pcVolume + entry.amount_pc);
@@ -793,10 +850,17 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(entry.member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, entry.metadata);
 
     if (entry.entry_type === "ACCRUAL" || entry.entry_type === "ADJUSTMENT") {
+      const breakdownKey =
+        sourceSystem === "IBLOOMING"
+          ? entry.entry_type === "ADJUSTMENT"
+            ? "IB_SALES_POINT_ADJUSTMENT"
+            : "IB_SALES_POINT"
+          : entry.entry_type;
       row.spRewardBasis = roundMetric(row.spRewardBasis + entry.amount_sp);
-      addBreakdownValue(row.metadata, "spBreakdown", entry.entry_type, entry.amount_sp);
+      addBreakdownValue(row.metadata, "spBreakdown", breakdownKey, entry.amount_sp);
     }
   }
 
@@ -815,6 +879,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(reward.member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, reward.metadata);
 
     const compatibilityRewardUsd = toCompatibilityDirectRewardUsdEquivalent(
       reward.reward_source_code,
@@ -849,6 +914,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(pool.recipient_member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, pool.metadata);
 
     if (pool.unit === "USD") {
       row.poolRewardUsd = roundMetric(row.poolRewardUsd + pool.amount);
@@ -884,6 +950,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(cashout.member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, cashout.metadata);
 
     const cashoutKey = `${cashout.member_stable_key}::${cashout.effective_period}::${
       cashout.source_event_ref ?? cashout.amount_usd
@@ -927,6 +994,7 @@ export function buildDerivedSnapshotDataFromCanonical(
     );
     row.activeMember = true;
     memberSystemKeys.add(buildMemberSystemKey(cashout.member_stable_key, sourceSystem));
+    copyCompatibilityMetadataFields(row.metadata, cashout.metadata);
     applyCashoutMetadata(row.metadata, cashout.metadata, cashout.amount_usd);
     row.cashoutUsd = roundMetric(row.cashoutUsd + cashout.amount_usd);
   }

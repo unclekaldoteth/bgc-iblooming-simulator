@@ -422,9 +422,9 @@ An internal business-side value used in the BGC ecosystem and referenced in ALPH
 
 In the current engine, imported `pcVolume` facts are converted into issuance base and then scaled by `k_pc`.
 
-### `SP`
+### `SP` / Sales Point
 
-An internal business-side reward or entitlement value referenced in ALPHA conversion logic.
+An internal business-side reward-basis point referenced in ALPHA conversion logic. For BGC, this usually means SP/LTS. For iBLOOMING, this can mean Sales Point from product or channel activity.
 
 In the current engine, imported `spRewardBasis` facts are converted into issuance base and then scaled by `k_sp`.
 
@@ -433,10 +433,10 @@ Plain-language view in the baseline simulator:
 - `PC` is internal credit tied to BGC physical-product activity.
 - Think of `PC` as business/product-side activity value.
 - Baseline assumption: `100 PC = $1`.
-- `SP` is internal reward value or reward-right value from the existing reward system.
-- Think of `SP` as incentive or entitlement value.
-- Baseline assumption: `1 SP = $1 reward basis`.
-- Simplest distinction: `PC` is closer to business/product activity, while `SP` is closer to reward rights and incentives.
+- `SP` / Sales Point is internal reward-basis value from the existing reward system.
+- Think of it as the point base used to calculate ALPHA issuance.
+- Baseline assumption: `1 SP/Sales Point = $1 reward basis`.
+- Simplest distinction: `PC` is closer to product/business activity, while `SP` / Sales Point is closer to reward basis and incentives.
 
 ### `Sink`
 
@@ -510,7 +510,7 @@ Simple mental model: `PC + SP` = source of ALPHA formation; `k_pc + k_sp` = knob
 
 ### `k_sp`
 
-- Business meaning: conversion intensity from `SP` into ALPHA issuance
+- Business meaning: conversion intensity from `SP` / Sales Point into ALPHA issuance
 - Current engine meaning: scales the `spRewardBasis`-derived issuance base for each imported fact row
 
 ### `reward_global_factor`

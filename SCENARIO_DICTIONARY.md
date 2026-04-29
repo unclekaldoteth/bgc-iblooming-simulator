@@ -66,7 +66,7 @@ Important: `Add Forecast` does not make forecast true. It only tells the engine 
 | --- | --- | --- | --- |
 | `scenario_mode` | Result Mode | Assumption | Controls imported-only vs forecast-enabled runs. |
 | `k_pc` | PC to ALPHA multiplier | Editable | Converts imported PC activity into ALPHA issuance. Higher value issues more ALPHA from PC. |
-| `k_sp` | SP to ALPHA multiplier | Editable | Converts imported SP/LTS basis into ALPHA issuance. Higher value issues more ALPHA from SP. |
+| `k_sp` | SP / Sales Point to ALPHA multiplier | Editable | Converts imported SP, LTS, or iBLOOMING Sales Point basis into ALPHA issuance. Higher value issues more ALPHA from this reward-basis point field. |
 | `reward_global_factor` | Global reward factor | Locked | Core global reward multiplier from the baseline model. Locked to avoid rewriting named reward rules. |
 | `reward_pool_factor` | Pool reward factor | Locked | Core pool reward multiplier from the baseline model. Locked to avoid rewriting named pool rules. |
 | `cap_user_monthly` | User monthly cap | Editable | Maximum ALPHA one member can receive per month. |
