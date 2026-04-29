@@ -104,7 +104,7 @@ Kolom pertama sampai `active_member` wajib ada. Kolom setelah itu sangat disaran
 | `member_tier` | Ya, boleh kosong | Level atau tier member pada bulan itu, contoh `PATHFINDER`. |
 | `group_key` | Ya, boleh kosong | Label grup/cohort, contoh `FOUNDERS` atau `CP_CREATORS`. |
 | `pc_volume` | Ya | Jumlah PC untuk member-bulan itu. PC adalah nilai aktivitas produk/bisnis. |
-| `sp_reward_basis` | Ya | Jumlah SP yang menjadi basis reward. SP adalah nilai hak reward atau incentive. |
+| `sp_reward_basis` | Ya | Point yang menjadi basis reward untuk row tersebut. Untuk BGC ini berarti SP/LTS. Untuk iBLOOMING ini bisa berarti Sales Point dari aktivitas produk atau channel. |
 | `global_reward_usd` | Ya | Nilai direct/global reward dalam USD-equivalent. |
 | `pool_reward_usd` | Ya | Nilai reward dari pool dalam USD-equivalent. |
 | `cashout_usd` | Ya | Jumlah cash-out yang dibayar atau diharapkan untuk member-bulan itu. Isi `0` kalau tidak ada cash-out. |
@@ -126,7 +126,7 @@ Monthly CSV sudah berupa ringkasan. Artinya pemilik spreadsheet bertanggung jawa
 | Kolom | Sumber bisnis | Cara engine saat ini membacanya |
 | --- | --- | --- |
 | `pc_volume` | Aktivitas entry atau upgrade affiliate BGC yang memberikan PC. | Untuk row BGC yang punya `extra_json.recognized_revenue_basis.entry_fee_usd`, engine memvalidasi PC terhadap tabel rule tier BGC di bawah. Secara praktik, tier BGC yang diterima saat ini memakai `entry_fee_usd x 100`, contoh `$100 -> 10.000 PC`. Untuk row iBLOOMING, PC harus `0` karena PC dianggap unit khusus BGC. |
-| `sp_reward_basis` | Basis reward SP/LTS dari level affiliate BGC. | Untuk row BGC yang punya basis entry fee, engine memvalidasi SP terhadap tabel rule tier BGC. Ini bukan angka bebas. Untuk row iBLOOMING, SP harus `0` karena SP/LTS dianggap unit khusus BGC. |
+| `sp_reward_basis` | Point basis reward yang dibuat oleh sumber bisnis. BGC bisa membuat SP/LTS dari entry atau upgrade affiliate. iBLOOMING bisa membuat Sales Point dari aktivitas produk atau channel. | Untuk row BGC yang punya basis entry fee, engine memvalidasi SP terhadap tabel rule tier BGC. Untuk row iBLOOMING, engine sekarang menerima Sales Point di field ini; gunakan `extra_json.sp_breakdown`, contoh `{"IB_SALES_POINT": 1200}`, supaya sumber point-nya jelas. |
 | `global_reward_usd` | Reward direct/global yang owed atau distributed ke member, misalnya BGC RR/GR atau reward family iBLOOMING. | Engine memperlakukan ini sebagai nilai reward obligation yang di-import. Kalau tidak `0`, sebaiknya `extra_json.global_reward_breakdown_usd` menjelaskan reward family asalnya. |
 | `pool_reward_usd` | Nilai distribusi pool yang dibayar atau dialokasikan ke member. | Engine memperlakukan ini sebagai nilai pool reward yang di-import. Kalau tidak `0`, sebaiknya `extra_json.pool_reward_breakdown_usd` menjelaskan pool asalnya. |
 | `cashout_usd` | Cash-out yang sudah dibayar, atau approved jika detail payment belum dipisah. | Ini adalah cash yang benar-benar keluar dari ecosystem. Ini berbeda dari reward accrual dan berbeda dari internal use ALPHA. Isi `0` kalau tidak ada cash-out. |
@@ -228,9 +228,9 @@ Pakai row `member_alias` tambahan hanya kalau satu member punya lebih dari satu 
 | `label` | `offer` | Nama offer yang mudah dibaca. |
 | `price_fiat_usd` | `offer` | Harga offer dalam USD. |
 | `pc_grant` | `offer` | Jumlah PC sederhana yang diberikan offer. |
-| `sp_accrual` | `offer` | Jumlah SP sederhana yang bertambah dari offer. |
+| `sp_accrual` | `offer` | Jumlah SP / Sales Point sederhana yang bertambah dari offer. |
 | `pc_grant_rule` | `offer` | JSON advanced untuk rule PC. Mengalahkan `pc_grant` jika diisi. |
-| `lts_generation_rule` | `offer` | JSON advanced untuk rule SP/LTS. Mengalahkan `sp_accrual` jika diisi. |
+| `lts_generation_rule` | `offer` | JSON advanced untuk rule SP/LTS atau Sales Point. Mengalahkan `sp_accrual` jika diisi. |
 | `reward_rule_reference` | `offer` | Nama/reference business rule di balik reward offer. |
 | `event_ref` | `business_event` | ID unik untuk business event. Row lain bisa menunjuk ke sini lewat `source_event_ref`. |
 | `event_type` | `business_event`, `cashout_event` | Jenis event. Business event dan cash-out event punya pilihan nilai berbeda. |
@@ -246,7 +246,7 @@ Pakai row `member_alias` tambahan hanya kalau satu member punya lebih dari satu 
 | `gross_margin_usd` | `business_event` | Gross margin dari event jika diketahui. |
 | `entry_type` | `pc_entry`, `sp_entry`, `pool_entry` | Jenis gerakan ledger. Pilihan nilainya tergantung row type. |
 | `amount_pc` | `pc_entry` | Jumlah PC untuk satu gerakan ledger PC. |
-| `amount_sp` | `sp_entry` | Jumlah SP untuk satu gerakan ledger SP. |
+| `amount_sp` | `sp_entry` | Jumlah SP / Sales Point untuk satu gerakan ledger basis reward. |
 | `sink_spend_usd` | `pc_entry` | Nilai internal use dalam USD. Disarankan saat `entry_type=SPEND`. |
 | `reward_source_code` | `reward_obligation` | Kode keluarga reward, contoh `BGC_RR` atau `IB_CPR`. |
 | `distribution_cycle` | `reward_obligation`, `pool_entry` | Seberapa sering reward atau pool dihitung/dibagikan. |
@@ -289,7 +289,7 @@ Full Detail CSV berisi source-detail rows. Saat import, engine menurunkan data d
 | `business_event` | Event bisnis nyata: join, upgrade, product sale, pool funding, reward accrual, atau qualification event. | Mengisi recognized revenue, gross margin, sink spend, dan activity period tergantung event type dan metadata. |
 | `pc_entry` dengan `GRANT` atau `ADJUSTMENT` | PC diberikan atau disesuaikan. | Menambah `pc_volume`. |
 | `pc_entry` dengan `SPEND` | PC/ALPHA dipakai di dalam ecosystem. | Menambah `sink_spend_usd`. Kalau `metadata.sink_spend_usd` kosong, engine default ke `amount_pc / 100`. |
-| `sp_entry` dengan `ACCRUAL` atau `ADJUSTMENT` | Basis reward SP/LTS dibuat atau disesuaikan. | Menambah `sp_reward_basis`. |
+| `sp_entry` dengan `ACCRUAL` atau `ADJUSTMENT` | Point basis reward dibuat atau disesuaikan. Untuk BGC biasanya berarti SP/LTS. Untuk iBLOOMING bisa berarti Sales Point. | Menambah `sp_reward_basis`. Jika source event yang terhubung adalah iBLOOMING, breakdown hasil derivasi memakai `IB_SALES_POINT` atau `IB_SALES_POINT_ADJUSTMENT`. |
 | `reward_obligation` | Reward yang owed, eligible, atau distributed ke member. | Menambah nilai reward USD-compatible ke `global_reward_usd`, dikelompokkan berdasarkan `reward_source_code`. Obligation yang `CANCELLED` diabaikan. |
 | `pool_entry` dengan recipient dan tipe distribution | Distribusi pool ke member. | Menambah nilai distribusi pool USD ke `pool_reward_usd`. Row pool funding saja tidak menjadi reward member. |
 | `cashout_event` dengan `PAID` | Cash-out benar-benar dibayar. | Menambah `cashout_usd`. |

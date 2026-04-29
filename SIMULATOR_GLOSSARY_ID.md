@@ -421,9 +421,9 @@ Nilai internal sisi bisnis yang digunakan di ekosistem BGC dan direferensikan da
 
 Di engine saat ini, fakta `pcVolume` yang diimport dikonversi menjadi issuance base lalu diskalakan dengan `k_pc`.
 
-### `SP`
+### `SP` / Sales Point
 
-Nilai reward atau entitlement internal sisi bisnis yang direferensikan dalam logika konversi ALPHA.
+Point internal sisi bisnis yang menjadi basis reward dan direferensikan dalam logika konversi ALPHA. Untuk BGC, ini biasanya berarti SP/LTS. Untuk iBLOOMING, ini bisa berarti Sales Point dari aktivitas produk atau channel.
 
 Di engine saat ini, fakta `spRewardBasis` yang diimport dikonversi menjadi issuance base lalu diskalakan dengan `k_sp`.
 
@@ -432,10 +432,10 @@ Penjelasan sederhana dalam baseline simulator:
 - `PC` adalah kredit internal yang terkait aktivitas produk fisik BGC.
 - Anggap `PC` sebagai nilai dari sisi aktivitas bisnis/produk.
 - Asumsi baseline: `100 PC = $1`.
-- `SP` adalah nilai reward internal atau hak reward dari sistem reward yang sudah ada.
-- Anggap `SP` sebagai nilai insentif atau entitlement.
-- Asumsi baseline: `1 SP = $1 reward basis`.
-- Perbedaan paling sederhananya: `PC` lebih dekat ke aktivitas bisnis/produk, sedangkan `SP` lebih dekat ke hak reward dan insentif.
+- `SP` / Sales Point adalah nilai basis reward internal dari sistem reward yang sudah ada.
+- Anggap ini sebagai basis point yang dipakai untuk menghitung issuance ALPHA.
+- Asumsi baseline: `1 SP/Sales Point = $1 reward basis`.
+- Perbedaan paling sederhananya: `PC` lebih dekat ke aktivitas bisnis/produk, sedangkan `SP` / Sales Point lebih dekat ke basis reward dan insentif.
 
 ### `Sink`
 
@@ -509,7 +509,7 @@ Cara paling gampang memahaminya: `PC + SP` = sumber pembentukan ALPHA; `k_pc + k
 
 ### `k_sp`
 
-- Makna bisnis: intensitas konversi dari `SP` ke ALPHA issuance
+- Makna bisnis: intensitas konversi dari `SP` / Sales Point ke ALPHA issuance
 - Makna engine saat ini: menskalakan issuance base yang berasal dari `spRewardBasis` untuk setiap imported fact row
 
 ### `reward_global_factor`

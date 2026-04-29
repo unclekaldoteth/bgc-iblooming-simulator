@@ -236,7 +236,7 @@ export const scenarioGuardrailMatrix: ScenarioGuardrailMatrixEntry[] = [
     parameter_key: "k_sp",
     status: "allowed",
     founder_label: "Allowed",
-    business_rationale: "Policy layer on top of imported SP/LTS data.",
+    business_rationale: "Policy layer on top of imported SP / Sales Point reward-basis data.",
     founder_action: "Free to tune."
   },
   {

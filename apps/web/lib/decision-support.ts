@@ -241,11 +241,11 @@ const parameterDescriptors: ParameterDescriptor[] = [
     key: "k_sp",
     symbol: "k_sp",
     label: "k_sp",
-    description: "Multiplier for converting SP or LTS into ALPHA.",
+    description: "Multiplier for converting SP, LTS, or iBLOOMING Sales Point into ALPHA.",
     kind: "number",
     guardrailStatus: "allowed",
     decisionOwner: "Leadership / Tokenomics",
-    rationale: "Editable SP/LTS-to-ALPHA conversion."
+    rationale: "Editable SP / Sales Point-to-ALPHA conversion."
   },
   {
     key: "cap_user_monthly",

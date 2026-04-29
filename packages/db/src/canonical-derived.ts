@@ -853,8 +853,14 @@ export function buildDerivedSnapshotDataFromCanonical(
     copyCompatibilityMetadataFields(row.metadata, entry.metadata);
 
     if (entry.entry_type === "ACCRUAL" || entry.entry_type === "ADJUSTMENT") {
+      const breakdownKey =
+        sourceSystem === "IBLOOMING"
+          ? entry.entry_type === "ADJUSTMENT"
+            ? "IB_SALES_POINT_ADJUSTMENT"
+            : "IB_SALES_POINT"
+          : entry.entry_type;
       row.spRewardBasis = roundMetric(row.spRewardBasis + entry.amount_sp);
-      addBreakdownValue(row.metadata, "spBreakdown", entry.entry_type, entry.amount_sp);
+      addBreakdownValue(row.metadata, "spBreakdown", breakdownKey, entry.amount_sp);
     }
   }
 

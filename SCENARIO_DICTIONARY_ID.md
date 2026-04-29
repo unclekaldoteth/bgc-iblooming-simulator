@@ -66,7 +66,7 @@ Catatan: `Add Forecast` tidak membuat forecast menjadi fakta. Mode ini hanya mem
 | --- | --- | --- | --- |
 | `scenario_mode` | Result Mode | Assumption | Mengontrol run imported-only vs forecast-enabled. |
 | `k_pc` | PC to ALPHA multiplier | Editable | Mengubah imported PC activity menjadi ALPHA issuance. Makin tinggi, makin banyak ALPHA dari PC. |
-| `k_sp` | SP to ALPHA multiplier | Editable | Mengubah imported SP/LTS basis menjadi ALPHA issuance. Makin tinggi, makin banyak ALPHA dari SP. |
+| `k_sp` | SP / Sales Point to ALPHA multiplier | Editable | Mengubah imported SP, LTS, atau iBLOOMING Sales Point basis menjadi ALPHA issuance. Makin tinggi, makin banyak ALPHA dari field basis reward ini. |
 | `reward_global_factor` | Global reward factor | Locked | Multiplier global dari baseline model. Dikunci agar named reward rule tidak berubah artinya. |
 | `reward_pool_factor` | Pool reward factor | Locked | Multiplier pool dari baseline model. Dikunci agar named pool rule tidak berubah artinya. |
 | `cap_user_monthly` | User monthly cap | Editable | Batas maksimum ALPHA yang bisa diterima satu member per bulan. |

@@ -1444,12 +1444,6 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       throw new Error(`pc_volume must be 0 for iblooming rows because PC is a BGC-only unit (${row.rowRef}).`);
     }
 
-    if (row.fact.spRewardBasis > 0) {
-      throw new Error(
-        `sp_reward_basis must be 0 for iblooming rows because SP/LTS is a BGC-only unit (${row.rowRef}).`
-      );
-    }
-
     if (memberTier !== null && !isKnownIbTier(memberTier)) {
       throw new Error(`member_tier must be blank, CP, or EXECUTIVE_CP for iblooming rows (${row.rowRef}).`);
     }
