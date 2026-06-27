@@ -62,10 +62,6 @@ export type SnapshotPoolPeriodFactInput = {
   metadataJson?: Prisma.InputJsonValue | null;
 };
 
-export type SnapshotMemberMonthFactRecord = Awaited<
-  ReturnType<typeof listSnapshotMemberMonthFacts>
->[number];
-
 type CreateSnapshotInput = {
   name: string;
   sourceSystems: string[];

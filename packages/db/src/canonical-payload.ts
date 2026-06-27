@@ -19,7 +19,6 @@ import {
 import {
   canonicalSnapshotEnvelopeSchema,
   canonicalSnapshotPayloadSchema,
-  type CanonicalSnapshotImport,
   type CanonicalSnapshotPayload
 } from "@bgc-alpha/schemas";
 
@@ -58,12 +57,6 @@ function assertReferencedKeysExist(
       throw new Error(`${fieldLabel} references "${reference}", but that key does not exist.`);
     }
   }
-}
-
-export function unwrapCanonicalSnapshotImportDocument(
-  value: CanonicalSnapshotImport
-): CanonicalSnapshotPayload {
-  return "payload" in value ? value.payload : value;
 }
 
 export function parseCanonicalSnapshotImportDocument(input: unknown): CanonicalSnapshotPayload {
