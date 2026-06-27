@@ -126,6 +126,3 @@ export async function readSnapshotText(fileUri: string) {
   const resolvedPath = path.isAbsolute(fileUri) ? fileUri : path.resolve(process.cwd(), fileUri);
   return readFile(resolvedPath, "utf8");
 }
-
-export const saveUploadedSnapshotCsv = saveUploadedSnapshotFile;
-export const readSnapshotCsvText = readSnapshotText;

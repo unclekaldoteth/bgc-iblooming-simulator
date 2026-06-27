@@ -468,5 +468,5 @@ export function getBaselineScenarioDefaults(model: BaselineModelRuleset) {
   } as const;
 }
 
-export type { BaselineCashoutMode, BaselineModelRuleset, BaselineModelVersion, RecommendationThresholds };
+export type { BaselineCashoutMode, BaselineModelRuleset, RecommendationThresholds };
 export { modelV1 };
