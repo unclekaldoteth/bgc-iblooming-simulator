@@ -4,6 +4,7 @@ import {
   summaryMetricDefinitions,
   type SummaryMetricKey
 } from "./summary-metrics";
+import type { ScenarioParameters } from "@bgc-alpha/schemas";
 
 const numberFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2
@@ -345,6 +346,27 @@ export function getScenarioModeCaveat(mode: string | null | undefined) {
   return "Add Forecast uses growth assumptions. Treat the result as an estimate, not observed data.";
 }
 
+export function usesForecastAssumptions(parameters: ScenarioParameters) {
+  const cohort = parameters.cohort_assumptions;
+  const sink = parameters.sink_adoption_model;
+
+  return (
+    parameters.scenario_mode === "advanced_forecast" ||
+    parameters.projection_horizon_months !== null ||
+    parameters.forecast_policy.mode !== "snapshot_window" ||
+    cohort.new_members_per_month > 0 ||
+    cohort.monthly_churn_rate_pct > 0 ||
+    cohort.monthly_reactivation_rate_pct > 0 ||
+    cohort.affiliate_new_member_share_pct > 0 ||
+    cohort.cross_app_adoption_rate_pct > 0 ||
+    sink.sink_adoption_rate_pct > 0 ||
+    sink.eligible_member_share_pct > 0 ||
+    sink.avg_sink_ticket_usd > 0 ||
+    sink.sink_frequency_per_month > 0 ||
+    sink.sink_growth_rate_pct !== 0
+  );
+}
+
 export function getSimpleScenarioValueLabel(value: string | null | undefined) {
   return simpleScenarioValueLabels[value ?? ""] ?? toTitleCase(value ?? "");
 }
@@ -407,7 +429,7 @@ export function simplifyResultText(value: string | null | undefined) {
     )
     .replace(
       /Observed snapshot periods and forward-looking periods are separated in the result evidence\./gi,
-      "Uploaded data months and forecast months are separated in this result."
+      "Uploaded data months and projected future months are separated in this result."
     )
     .replace(
       /Whitepaper text must cite snapshot truth, scenario parameters, result metrics, flags, and caveats from this pack\./gi,
@@ -436,7 +458,7 @@ export function simplifyResultText(value: string | null | undefined) {
     .replace(/P5 Whitepaper Evidence Pack/g, "Whitepaper Evidence")
     .replace(/Token Flow/g, "ALPHA Flow")
     .replace(/actual periods/gi, "observed months")
-    .replace(/projected periods/gi, "forecast months")
+    .replace(/projected periods/gi, "projected future months")
     .replace(/internal_credit/g, "internal credit")
     .replace(/non_transferable/g, "non transferable")
     .replace(/not_on_chain/g, "not on chain")
@@ -463,7 +485,7 @@ export function simplifyResultText(value: string | null | undefined) {
     )
     .replace(
       /Observed snapshot periods and forward-looking periods are separated[^.]*\./gi,
-      "Uploaded data months and forecast months are separated in this result."
+      "Uploaded data months and projected future months are separated in this result."
     )
     .replace(/result output includes/gi, "Result output includes")
     .replace(/by period/gi, "by month")

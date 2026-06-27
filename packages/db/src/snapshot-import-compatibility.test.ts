@@ -50,6 +50,86 @@ test("valid compatibility fixture passes in understanding_doc_strict mode", () =
   assert.equal(result.issues.filter((issue) => issue.severity === "WARNING").length, 0);
 });
 
+test("monthly CSV parser accepts human-formatted numbers and BGC cohort aggregate rows", () => {
+  const headers = [
+    "period_key",
+    "member_key",
+    "source_system",
+    "member_tier",
+    "group_key",
+    "cash_in_usd",
+    "gross_margin_usd",
+    "recognized_revenue_usd",
+    "internal_credit_spent_usd",
+    "payment_method",
+    "pc_volume",
+    "sp_reward_basis",
+    "global_reward_usd",
+    "pool_reward_usd",
+    "cashout_usd",
+    "sink_spend_usd",
+    "active_member",
+    "member_join_period",
+    "is_affiliate",
+    "cross_app_active",
+    "extra_json"
+  ];
+  const csvText = [
+    headers.join(","),
+    csvRow(headers, {
+      period_key: "2024-04",
+      member_key: "BGC-APR-2024-SPECIAL",
+      source_system: "BGC",
+      member_tier: "SPECIAL",
+      group_key: "BGC-AFFILIATE-SPECIAL",
+      cash_in_usd: "506,800",
+      gross_margin_usd: "506,800",
+      recognized_revenue_usd: "506,800",
+      internal_credit_spent_usd: "0",
+      pc_volume: "50,680,000",
+      sp_reward_basis: "354,760",
+      global_reward_usd: "53,214",
+      pool_reward_usd: "63,856.80",
+      cashout_usd: "100,274.25",
+      sink_spend_usd: "0",
+      active_member: "TRUE",
+      member_join_period: "2024-04",
+      is_affiliate: "TRUE"
+    }),
+    csvRow(headers, {
+      period_key: "2024-05",
+      member_key: "BGC-MAY-2024-PATHFINDER",
+      source_system: "BGC",
+      member_tier: "PATHFINDER",
+      group_key: "BGC-AFFILIATE-PATHFINDER",
+      cash_in_usd: "63.856,80",
+      gross_margin_usd: "63.856,80",
+      recognized_revenue_usd: "63.856,80",
+      internal_credit_spent_usd: "0",
+      pc_volume: "6.385.680",
+      sp_reward_basis: "44.699,76",
+      global_reward_usd: "4.469,98",
+      pool_reward_usd: "8.045,96",
+      cashout_usd: "0",
+      sink_spend_usd: "0",
+      active_member: "TRUE",
+      member_join_period: "2024-05",
+      is_affiliate: "TRUE"
+    })
+  ].join("\n");
+
+  const result = parseCompatibilityCsvSnapshotText(csvText, {
+    mode: "understanding_doc_strict"
+  });
+
+  assert.equal(result.facts.length, 2);
+  assert.equal(result.issues.filter((issue) => issue.severity === "ERROR").length, 0);
+  assert.equal(result.facts[0].pcVolume, 50_680_000);
+  assert.equal(result.facts[0].poolRewardUsd, 63_856.8);
+  assert.equal(result.facts[1].pcVolume, 6_385_680);
+  assert.equal(result.facts[1].poolRewardUsd, 8_045.96);
+});
+
 test("invalid formula fixture is rejected in understanding_doc_strict mode", () => {
   const errors = errorMessages(buildInvalidFormulaCsvFixture());
 

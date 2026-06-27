@@ -229,8 +229,59 @@ function parseCsvRecords(text: string): CsvRecord[] {
   });
 }
 
+function parseHumanNumericField(value: string) {
+  const trimmed = value
+    .trim()
+    .replace(/\u00A0/g, "")
+    .replace(/\s+/g, "");
+
+  if (trimmed.length === 0) {
+    return NaN;
+  }
+
+  if (!/^[0-9.,]+$/.test(trimmed)) {
+    return NaN;
+  }
+
+  const commaCount = (trimmed.match(/,/g) ?? []).length;
+  const dotCount = (trimmed.match(/\./g) ?? []).length;
+
+  if (commaCount > 0 && dotCount > 0) {
+    const lastCommaIndex = trimmed.lastIndexOf(",");
+    const lastDotIndex = trimmed.lastIndexOf(".");
+    const decimalSeparator = lastCommaIndex > lastDotIndex ? "," : ".";
+    const thousandsSeparator = decimalSeparator === "," ? "." : ",";
+
+    return Number(
+      trimmed
+        .replace(new RegExp(`\\${thousandsSeparator}`, "g"), "")
+        .replace(decimalSeparator, ".")
+    );
+  }
+
+  if (commaCount > 0) {
+    const commaParts = trimmed.split(",");
+    const lastPart = commaParts[commaParts.length - 1] ?? "";
+    const isThousandsFormat =
+      commaCount > 1 ||
+      (commaParts.length === 2 && lastPart.length === 3 && commaParts[0].length >= 1);
+
+    return Number(isThousandsFormat ? trimmed.replace(/,/g, "") : trimmed.replace(",", "."));
+  }
+
+  if (dotCount > 0) {
+    const dotParts = trimmed.split(".");
+    const lastPart = dotParts[dotParts.length - 1] ?? "";
+    const isThousandsFormat = dotCount > 1 && lastPart.length === 3;
+
+    return Number(isThousandsFormat ? trimmed.replace(/\./g, "") : trimmed);
+  }
+
+  return Number(trimmed);
+}
+
 function parseNumericField(value: string, fieldName: string, rowRef: string) {
-  const parsed = Number(value);
+  const parsed = parseHumanNumericField(value);
 
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new Error(`${fieldName} must be a non-negative number (${rowRef}).`);
@@ -609,6 +660,34 @@ function normalizeMemberTier(value: string | null | undefined) {
   return normalized.length > 0 ? normalized : null;
 }
 
+const MONTHLY_AGGREGATE_MEMBER_KEY_PATTERN =
+  /^BGC[-_](?:JAN|JANUARY|FEB|FEBRUARY|MAR|MARCH|APR|APRIL|MAY|JUN|JUNE|JUL|JULY|AUG|AUGUST|SEP|SEPTEMBER|OCT|OCTOBER|NOV|NOVEMBER|DEC|DECEMBER)[-_]\d{4}[-_]?[A-Z0-9_-]+$/i;
+
+function isInferredMonthlyAggregateFact(
+  fact: SnapshotMemberMonthFactInput,
+  metadata: Record<string, unknown> | null | undefined
+) {
+  if (metadata) {
+    const explicitAggregateValue = getMetadataFieldValue(metadata, "aggregate_row", ["aggregateRow"]);
+
+    if (typeof explicitAggregateValue !== "undefined" && explicitAggregateValue !== null) {
+      return false;
+    }
+  }
+
+  const sourceSystem = normalizeSourceSystemCode(fact.sourceSystem);
+  const memberTier = normalizeMemberTier(fact.memberTier);
+  const groupKey = fact.groupKey?.trim().toUpperCase() ?? "";
+  const memberKey = fact.memberKey.trim();
+
+  return (
+    sourceSystem === "BGC" &&
+    isKnownBgcTier(memberTier) &&
+    groupKey.startsWith("BGC-AFFILIATE-") &&
+    MONTHLY_AGGREGATE_MEMBER_KEY_PATTERN.test(memberKey)
+  );
+}
+
 function isKnownBgcTier(value: string | null): value is KnownBgcTier {
   return value !== null && value in BGC_TIER_RULES;
 }
@@ -664,14 +743,12 @@ function isHybridMonthlyOverrideRow(row: ParsedCompatibilityRow) {
 }
 
 function isAggregateCompatibilityRow(row: ParsedCompatibilityRow) {
-  if (!row.metadata) {
-    return false;
-  }
-
-  const value = getMetadataFieldValue(row.metadata, "aggregate_row", ["aggregateRow"]);
+  const value = row.metadata
+    ? getMetadataFieldValue(row.metadata, "aggregate_row", ["aggregateRow"])
+    : undefined;
 
   if (typeof value === "undefined" || value === null) {
-    return false;
+    return isInferredMonthlyAggregateFact(row.fact, row.metadata);
   }
 
   return parseMetadataBoolean(value, "aggregate_row", row.rowRef);
@@ -908,6 +985,12 @@ function normalizeCompatibilityMetadataForValidation(
   const sourceCategories = Array.isArray(normalized.source_categories)
     ? normalized.source_categories.filter((value): value is string => typeof value === "string")
     : [];
+  const inferredMonthlyAggregate = isInferredMonthlyAggregateFact(fact, normalized);
+
+  if (inferredMonthlyAggregate && !("aggregate_row" in normalized)) {
+    normalized.aggregate_row = true;
+    normalized.aggregate_row_basis = "monthly_cohort_row";
+  }
 
   if (!("recognized_revenue_basis" in normalized)) {
     const normalizedSourceSystem = normalizeSourceSystemCode(fact.sourceSystem);
@@ -917,9 +1000,13 @@ function normalizeCompatibilityMetadataForValidation(
       recognizedRevenueUsd !== null &&
       (fact.pcVolume > 0 || fact.spRewardBasis > 0 || recognizedRevenueUsd > 0)
     ) {
-      normalized.recognized_revenue_basis = {
-        entry_fee_usd: round2(recognizedRevenueUsd)
-      };
+      normalized.recognized_revenue_basis = inferredMonthlyAggregate
+        ? {
+            monthly_aggregate_usd: round2(recognizedRevenueUsd)
+          }
+        : {
+            entry_fee_usd: round2(recognizedRevenueUsd)
+          };
     }
 
     if (
@@ -1414,7 +1501,8 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       throw new Error(`recognized_revenue_basis.gross_sale_usd is invalid for bgc rows (${row.rowRef}).`);
     }
 
-    const requiresEntryFeeBasis = row.fact.pcVolume > 0 || row.recognizedRevenueUsd !== null;
+    const requiresEntryFeeBasis =
+      !isAggregateRow && (row.fact.pcVolume > 0 || row.recognizedRevenueUsd !== null);
 
     if (requiresEntryFeeBasis && !recognizedRevenueBasis) {
       throw new Error(
@@ -1422,7 +1510,7 @@ function validateUnderstandingDocRowFormula(row: ParsedCompatibilityRow) {
       );
     }
 
-    if (recognizedRevenueBasis) {
+    if (recognizedRevenueBasis && !isAggregateRow) {
       const entryFeeUsd = getOptionalMetadataNumber(recognizedRevenueBasis, "entry_fee_usd", row.rowRef);
 
       if (entryFeeUsd !== null) {
@@ -1869,6 +1957,7 @@ function validateCompatibilityRowMetadata(
 ) {
   const issues: SnapshotImportIssueInput[] = [];
   const { metadata, fact, rowRef, recognizedRevenueUsd, grossMarginUsd } = row;
+  const isAggregateRow = isAggregateCompatibilityRow(row);
 
   if (!metadata) {
     if (mode === "understanding_doc_strict") {
@@ -1970,7 +2059,7 @@ function validateCompatibilityRowMetadata(
 
   if (cashoutBreakdownTotal === null && fact.cashoutUsd > 0) {
     issues.push({
-      severity: "ERROR",
+      severity: isAggregateRow ? "WARNING" : "ERROR",
       issueType: "missing_rule_tagged_breakdown",
       message: "extra_json is missing cashout_breakdown_usd while cashout_usd is non-zero.",
       rowRef
@@ -1979,7 +2068,7 @@ function validateCompatibilityRowMetadata(
 
   if (sinkBreakdownTotal === null && fact.sinkSpendUsd > 0) {
     issues.push({
-      severity: "ERROR",
+      severity: isAggregateRow ? "WARNING" : "ERROR",
       issueType: "missing_rule_tagged_breakdown",
       message: "extra_json is missing sink_breakdown_usd while sink_spend_usd is non-zero.",
       rowRef

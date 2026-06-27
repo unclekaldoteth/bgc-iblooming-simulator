@@ -24,7 +24,8 @@ import {
   getScenarioModeCaveat,
   getScenarioModeLabel,
   getRunStatusLabel,
-  simplifyResultText
+  simplifyResultText,
+  usesForecastAssumptions
 } from "@/lib/common-language";
 import {
   formatSummaryMetricValue,
@@ -126,6 +127,34 @@ export default async function RunDetailPage({
   const businessOutcomeMetrics = getMetricRows(businessOutcomeMetricKeys);
   const alphaOutcomeMetrics = getMetricRows(alphaOutcomeMetricKeys);
   const healthSignalMetrics = getMetricRows(healthSignalMetricKeys);
+  const modeledAlphaUsed = orderedSummaryMetricsByKey.get("alpha_modeled_spent_total")?.value ?? 0;
+  const modeledUseRate = orderedSummaryMetricsByKey.get("modeled_sink_utilization_rate")?.value ?? 0;
+  const projectedFutureMonths = orderedSummaryMetricsByKey.get("forecast_projected_period_count")?.value ?? 0;
+  const forecastAssumptionsUsed = usesForecastAssumptions(scenarioParameters);
+  const modeledForecastImpactLabel =
+    modeledAlphaUsed > 0 || modeledUseRate > 0
+      ? `${formatSummaryMetricValue("alpha_modeled_spent_total", modeledAlphaUsed)} ALPHA used · ${formatSummaryMetricValue("modeled_sink_utilization_rate", modeledUseRate)} modeled use rate`
+      : "No modeled ALPHA impact";
+  const futureRevenueImpactLabel =
+    projectedFutureMonths > 0
+      ? "Future-period money is included in money totals."
+      : "No future-period revenue was added.";
+  const forecastDetailRows = [
+    {
+      id: "forecast-assumptions-used",
+      label: "Forecast Assumptions Used",
+      description:
+        "Shows whether this result used forecast mode, future months, or internal-use adoption assumptions.",
+      value: forecastAssumptionsUsed ? "Yes" : "No"
+    },
+    {
+      id: "modeled-forecast-impact",
+      label: "Modeled Forecast Impact",
+      description:
+        "Extra impact created by assumptions, kept separate from uploaded data where the engine can separate it.",
+      value: `${modeledForecastImpactLabel}. ${futureRevenueImpactLabel}`
+    }
+  ];
 
   return (
     <>
@@ -325,6 +354,17 @@ export default async function RunDetailPage({
                     </div>
                   </td>
                   <td style={{ fontWeight: 600 }}>{formatSummaryMetricValue(metric.key, metric.value)}</td>
+                </tr>
+              ))}
+              {forecastDetailRows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <div className="summary-metric-label">
+                      <strong>{row.label}</strong>
+                      <span className="muted">{row.description}</span>
+                    </div>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{row.value}</td>
                 </tr>
               ))}
             </tbody>

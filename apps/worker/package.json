@@ -15,8 +15,7 @@
     "@bgc-alpha/exports": "workspace:*",
     "@bgc-alpha/schemas": "workspace:*",
     "@bgc-alpha/simulation-core": "workspace:*",
-    "pg-boss": "^10.1.6",
-    "zod": "^3.24.1"
+    "pg-boss": "^10.1.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

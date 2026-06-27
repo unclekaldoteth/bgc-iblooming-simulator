@@ -577,7 +577,7 @@ function buildTokenFlowEvidence(
   }
 
   if (summary.forecast_projected_period_count > 0) {
-    caveats.push("Forecast months are assumptions and must stay separate from uploaded data months.");
+    caveats.push("Projected future months are assumptions and must stay separate from uploaded data months.");
   }
 
   if (advancedForecastMode) {
@@ -668,9 +668,9 @@ function buildTokenFlowEvidence(
       {
         key: "forecast_layer",
         label: "Forecast Settings",
-        value: `${summary.forecast_actual_period_count} observed months · ${summary.forecast_projected_period_count} forecast months · ${formatSimpleScenarioValue(forecastPolicy.mode)}`,
+        value: `${summary.forecast_actual_period_count} observed months · ${summary.forecast_projected_period_count} projected future months · ${formatSimpleScenarioValue(forecastPolicy.mode)}`,
         status: summary.forecast_projected_period_count > 0 || forecastPolicy.mode !== "snapshot_window" ? "assumption" : "ready",
-        detail: "Uploaded data months and forecast months are separated in the result evidence."
+        detail: "Uploaded data months and projected future months are separated in the result evidence."
       },
       {
         key: "supply_model",
@@ -1189,7 +1189,7 @@ function buildDecisionPack(
       `Actual ALPHA used: ${summary.alpha_actual_spent_total.toFixed(2)}`,
       `Modeled ALPHA used: ${summary.alpha_modeled_spent_total.toFixed(2)}`,
       `Observed months: ${summary.forecast_actual_period_count}`,
-      `Forecast months: ${summary.forecast_projected_period_count}`,
+      `Projected future months: ${summary.forecast_projected_period_count}`,
       `Treasury pressure: ${summary.payout_inflow_ratio.toFixed(2)}x`,
       `Reserve runway: ${summary.reserve_runway_months.toFixed(2)} months`,
       `k_pc: ${parameters.k_pc}`,

@@ -99,8 +99,10 @@ Ledger check:
 | Treasury Pressure | `payout_inflow_ratio` | Payout/reward obligations compared with revenue support. Above `1.0x` means obligations exceed support. | Lower is safer. |
 | Reserve Runway | `reserve_runway_months` | Estimated months reserve can support payout obligations. | Higher is safer. |
 | Top 10% Reward Share | `reward_concentration_top10_pct` | Share of rewards captured by top 10% of members. | Lower is fairer. |
-| Observed Months | `forecast_actual_period_count` | Number of months read from uploaded data. | Higher means more actual data. |
-| Forecast Months | `forecast_projected_period_count` | Number of months generated from assumptions. | Higher means more forecast caveat. |
+| Observed Months | `forecast_actual_period_count` | Months that come from uploaded data. | Higher means more uploaded history is represented. |
+| Projected Future Months | `forecast_projected_period_count` | Months added after the uploaded data range. `0` means no extra future months were added. | This is different from whether forecast assumptions were used. |
+| Forecast Assumptions Used | Derived from scenario mode, forecast policy, projection horizon, cohort assumptions, and internal-use adoption assumptions. | Shows whether the result used assumptions such as Add Forecast, member growth, churn, or modeled internal-use adoption. | `Yes` means the result is partly estimate-based even when Projected Future Months is `0`. |
+| Modeled Forecast Impact | Derived from `alpha_modeled_spent_total`, `modeled_sink_utilization_rate`, and projected future-month revenue context. | Shows the ALPHA impact created by forecast assumptions. Future-period revenue is included in money totals only when Projected Future Months is greater than `0`. | Keeps uploaded data separate from modeled impact where the engine can separate it. |
 
 ## Distribution Page Terms
 

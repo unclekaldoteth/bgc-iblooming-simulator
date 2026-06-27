@@ -99,8 +99,10 @@ Ledger check:
 | Treasury Pressure | `payout_inflow_ratio` | Kewajiban payout/reward dibanding revenue support. Di atas `1.0x` berarti kewajiban lebih besar dari support. | Lebih rendah lebih aman. |
 | Reserve Runway | `reserve_runway_months` | Estimasi berapa bulan reserve bisa menopang payout obligations. | Lebih tinggi lebih aman. |
 | Top 10% Reward Share | `reward_concentration_top10_pct` | Share reward yang diterima top 10% member. | Lebih rendah lebih fair. |
-| Observed Months | `forecast_actual_period_count` | Jumlah bulan yang dibaca dari uploaded data. | Lebih tinggi berarti lebih banyak actual data. |
-| Forecast Months | `forecast_projected_period_count` | Jumlah bulan yang dibuat dari asumsi. | Lebih tinggi berarti caveat forecast lebih besar. |
+| Observed Months | `forecast_actual_period_count` | Jumlah bulan yang berasal dari uploaded data. | Lebih tinggi berarti lebih banyak riwayat data yang masuk. |
+| Projected Future Months | `forecast_projected_period_count` | Jumlah bulan yang ditambahkan setelah rentang uploaded data. `0` berarti tidak ada bulan masa depan tambahan. | Ini berbeda dari apakah asumsi forecast dipakai atau tidak. |
+| Forecast Assumptions Used | Diturunkan dari scenario mode, forecast policy, projection horizon, cohort assumptions, dan internal-use adoption assumptions. | Menunjukkan apakah result memakai asumsi seperti Add Forecast, pertumbuhan member, churn, atau modeled internal-use adoption. | `Yes` berarti result sebagian berbasis estimasi walaupun Projected Future Months bernilai `0`. |
+| Modeled Forecast Impact | Diturunkan dari `alpha_modeled_spent_total`, `modeled_sink_utilization_rate`, dan konteks revenue bulan proyeksi. | Menunjukkan dampak ALPHA yang dibuat oleh asumsi forecast. Revenue masa depan hanya masuk ke money totals kalau Projected Future Months lebih dari `0`. | Memisahkan uploaded data dari modeled impact selama engine bisa memisahkannya. |
 
 ## Distribution Page Terms
 

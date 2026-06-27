@@ -255,17 +255,17 @@ export const summaryMetricDefinitions: SummaryMetricDefinition[] = [
     label: "Observed Months",
     shortLabel: "Observed",
     description:
-      "Number of months read directly from uploaded data.",
+      "Months that come from uploaded data.",
     group: "signal",
     unit: "count",
     chartMax: 24,
   },
   {
     key: "forecast_projected_period_count",
-    label: "Forecast Months",
-    shortLabel: "Forecast",
+    label: "Projected Future Months",
+    shortLabel: "Future Months",
     description:
-      "Number of months generated from forecast assumptions instead of uploaded history.",
+      "Months added after the uploaded data range. 0 means no extra future months were added.",
     group: "signal",
     unit: "count",
     chartMax: 24,

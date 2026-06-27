@@ -16,7 +16,8 @@ import {
   getScenarioModeLabel,
   getSimpleScenarioValueLabel,
   getTokenPriceBasisLabel,
-  simplifyResultText
+  simplifyResultText,
+  usesForecastAssumptions
 } from "@/lib/common-language";
 import { readTokenFlowEvidence } from "@/lib/strategic-objectives";
 
@@ -141,6 +142,9 @@ export default async function TokenFlowPage({
   const summaryByKey = new Map(run.summaryMetrics.map((metric) => [metric.metricKey, metric.metricValue] as const));
   const actualPeriods = summaryByKey.get("forecast_actual_period_count") ?? 0;
   const projectedPeriods = summaryByKey.get("forecast_projected_period_count") ?? 0;
+  const modeledAlphaUsed = summaryByKey.get("alpha_modeled_spent_total") ?? 0;
+  const modeledUseRate = summaryByKey.get("modeled_sink_utilization_rate") ?? 0;
+  const forecastAssumptionsUsed = usesForecastAssumptions(parameters);
   const scenarioModeCaveat = getScenarioModeCaveat(parameters.scenario_mode);
 
   return (
@@ -231,8 +235,12 @@ export default async function TokenFlowPage({
               <strong>{actualPeriods}</strong>
             </div>
             <div className="decision-kpi">
-              <span>Forecast Months</span>
+              <span>Projected Future Months</span>
               <strong>{projectedPeriods}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Forecast Assumptions Used</span>
+              <strong>{forecastAssumptionsUsed ? "Yes" : "No"}</strong>
             </div>
             <div className="decision-kpi">
               <span>Actual ALPHA Used</span>
@@ -240,7 +248,11 @@ export default async function TokenFlowPage({
             </div>
             <div className="decision-kpi">
               <span>Modeled ALPHA Used</span>
-              <strong>{formatCommonMetricValue("alpha_modeled_spent_total", summaryByKey.get("alpha_modeled_spent_total") ?? 0)}</strong>
+              <strong>{formatCommonMetricValue("alpha_modeled_spent_total", modeledAlphaUsed)}</strong>
+            </div>
+            <div className="decision-kpi">
+              <span>Modeled Forecast Impact</span>
+              <strong>{formatCommonMetricValue("modeled_sink_utilization_rate", modeledUseRate)}</strong>
             </div>
           </div>
           <dl className="detail-list">
